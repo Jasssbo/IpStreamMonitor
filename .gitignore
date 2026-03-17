@@ -3,6 +3,19 @@
 ##
 ## Get latest from https://github.com/github/gitignore/blob/main/VisualStudio.gitignore
 
+.venv/
+/src/presets/*
+/Windows/presets/MyDefault.csv
+/src/RadioList.ods
+/Windows/build
+/Windows/dist/*
+#/Windows/ffmpeg_bin/ffmpeg.exe
+#/Windows/ffmpeg_bin/ffplay.exe
+/Windows/ffmpeg_bin/*
+/Windows/ffmpeg_bin/LICENSE
+
+/Windows/Output/*
+
 # User-specific files
 *.rsuser
 *.suo
