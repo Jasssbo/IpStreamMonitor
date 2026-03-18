@@ -33,7 +33,7 @@ IpStreamMonitor/
 │   ├── presets/Default.csv   # Preset file for IP + Name sets with single-click recall
 │   ├── stream_monitor_windows.spec # PyInstaller config
 │   ├── installer.iss               # Inno Setup script
-│   └── ffmpeg_bin/                 # FFmpeg binaries
+│   └── ffmpeg_bin/                 # FFmpeg binaries for InnoSetup's packaging
 └── README.md
 ```
 
@@ -46,7 +46,7 @@ IpStreamMonitor/
 The easiest way to install IP Stream Monitor on Windows.
 
 1. Download the installer from Releases:
-   IPStreamMonitor_installer.exe
+[IPStreamMonitor_installer.exe](https://github.com/Jasssbo/IpStreamMonitor/releases/tag/v1.0.0)
 
 2. Run the installer and follow the setup wizard
 
