@@ -97,9 +97,6 @@ CONFIG = StreamConfig()
 
 
 # ── Standard di Metering (colorazione LUFS/TP) ──────────────────────────────────
-from dataclasses import dataclass
-from typing import Dict
-
 @dataclass
 class MeteringStandard:
     name: str
@@ -1388,7 +1385,7 @@ class MainWindow(QMainWindow):
         preset_icon.setStyleSheet(f"color: {TEXT_DIM}; font-size: 14px; font-family: 'Courier New';")
 
         self._preset_combo = QComboBox()
-        self._preset_combo.setMinimumWidth(220)
+        self._preset_combo.setMinimumWidth(180)
         self._preset_combo.setFixedHeight(32)
         self._preset_combo.setStyleSheet(f"""
             QComboBox {{
@@ -1435,7 +1432,7 @@ class MainWindow(QMainWindow):
 
         load_btn   = _small_btn("▶ Carica",   "Carica il preset selezionato (aggiunge agli stream attivi)")
         replace_btn= _small_btn("↺ Sostituisci", "Chiude tutti gli stream e carica il preset selezionato")
-        save_btn   = _small_btn("💾 Salva",    "Salva gli stream attivi come preset", GREEN)
+        save_btn   = _small_btn("💾 Sovrascrivi",    "Salva gli stream attivi come preset", GREEN)
         saveas_btn = _small_btn("💾 Salva come…", "Salva con nome nuovo", GREEN)
         del_btn    = _small_btn("🗑 Elimina",  "Elimina il preset selezionato", RED)
         browse_btn = _small_btn("📂 Apri file…", "Carica un file CSV da un percorso qualsiasi")
@@ -1515,8 +1512,8 @@ class MainWindow(QMainWindow):
             return
 
         if not rows:
-            QMessageBox.warning(self, "Preset vuoto",
-                                f"Nessuna riga valida trovata in:\n{path.name}")
+           # QMessageBox.warning(self, "Preset vuoto",
+           #                     f"Nessuna riga valida trovata in:\n{path.name}")
             return
 
         if replace:

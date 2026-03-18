@@ -1,199 +1,206 @@
-# IP-Audio-Stream-Monitor
+# IpStreamMonitor
 
-Monitor audio in tempo reale per stream HTTP (MP3/AAC). Visualizza fino a 16 flussi audio contemporaneamente con waveform in real-time e misurazione LUFS e TruePeak secondo lo standard algoritmico ITU-R BS 1770-5 e
-lo standard audio EBU R 128-2023.
+Real-time stereo audio monitor for HTTP streams (MP3/AAC), designed for Radio and WebRadio broadcasting.
+Monitor up to 16 audio streams simultaneously with real-time waveform display, LUFS and True Peak metering according to ITU-R BS.1770-4 algorithm and EBU R128-2023 standard. Features include: audio playback, configurable ffmpeg decoding settings, UI display options, selectable metering standards (EBU R128, YouTube, Spotify, AES71...) and preset management via CSV files for public AOIP streams with associated names.
 
 ![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)
 ![Platform](https://img.shields.io/badge/Platform-Windows-lightgrey.svg)
 ![Platform](https://img.shields.io/badge/Platform-Linux-lightgrey.svg)
 ![License](https://img.shields.io/badge/License-GnuGPLv3-green.svg)
 
-## Funzionalità
+## Features
 
-- Monitoraggio simultaneo fino a 16 stream audio stereo
-- Visualizzazione waveform in tempo reale
-- Misurazione LUFS Short-term e TruePeak Left/Right conforme con EBU R128
-- Gestione preset per configurazioni multiple
-- Interfaccia moderna con PyQt6
+- Simultaneous monitoring of up to 16 stereo audio streams
+- Real-time waveform visualization
+- LUFS Short-term and True Peak Left/Right metering compliant with EBU R128
+- Preset management for multiple configurations
+- Modern interface with PyQt6
 
 ---
 
-## Struttura del progetto
+## Project Structure
 
 ```text
 IpStreamMonitor/
 ├── src/
-│   ├── stream_monitor.py     # Versione cross-platform
-│   ├── requirements.txt      # Dipendenze Python
-│   ├── metering_standards/standards.json   # File per richiamare gli standard di misurazione
-│   └── presets/Default.csv   # File per richiamare set di IP + Nome corrisponente con un singolo click
+│   ├── stream_monitor.py     # Cross-platform version
+│   ├── requirements.txt      # Python dependencies
+│   ├── metering_standards/standards.json   # Metering standards configuration
+│   └── presets/Default.csv   # Preset file for IP + Name sets with single-click recall
 ├── Windows/
-│   ├── stream_monitor_windows.py   # Versione Windows
-│   ├── metering_standards/standards.json   # File per richiamare gli standard di misurazione
-│   ├── presets/Default.csv   # File per richiamare set di IP + Nome corrisponente con un singolo click
-│   ├── stream_monitor_windows.spec # Config PyInstaller
-│   ├── installer.iss               # Script Inno Setup
-│   └── ffmpeg_bin/                 # Binari FFmpeg
+│   ├── stream_monitor_windows.py   # Windows version
+│   ├── metering_standards/standards.json   # Metering standards configuration
+│   ├── presets/Default.csv   # Preset file for IP + Name sets with single-click recall
+│   ├── stream_monitor_windows.spec # PyInstaller config
+│   ├── installer.iss               # Inno Setup script
+│   └── ffmpeg_bin/                 # FFmpeg binaries
 └── README.md
 ```
 
 ---
 
-## Installazione
+## Installation
 
-### Opzione 1: CLassico Installer Windows 10/11
+### Option 1: Windows 10/11 Installer
 
-Il modo più semplice per installare IP Stream Monitor su Windows.
+The easiest way to install IP Stream Monitor on Windows.
 
-1. Scarica l'installer da... :
+1. Download the installer from Releases:
    IPStreamMonitor_installer.exe
 
-2. Esegui l'installer e segui la procedura guidata
+2. Run the installer and follow the setup wizard
 
-3. L'applicazione verrà installata con:
-   - FFmpeg integrato (ffmpeg.exe e ffplay.exe) e Python con librerie Qt6 per la GUI, numpy/pyqtgraph per la rappresentazione della forma d'onda e librerie di sistema per l'avvio dell'app e la gestione processi.
-   - Collegamento sul Desktop (opzionale)
-   - Collegamento nel Menu Start (opzionale)
-   - Disinstallazione automatica tramite "uninstall.exe" nella cartella:
-                              C:\Program Files (x86)\IpStreamMonitor
+3. The application will be installed with:
+   - Bundled FFmpeg (ffmpeg.exe and ffplay.exe) and Python with Qt6 libraries for GUI, numpy/pyqtgraph for waveform rendering, and system libraries for app startup and process management.
+   - Desktop shortcut (optional)
+   - Start Menu shortcut (optional)
+   - Automatic uninstall via "uninstall.exe" in folder:
+   C:\Program Files (x86)\IpStreamMonitor
 
-> **Nota**: L'installer richiede privilegi di amministratore e Windows 10 o superiore (64-bit).
+> **Note**: The installer requires administrator privileges and Windows 10 or later (64-bit).
 
 ---
 
-### Opzione 2: Build manuale da sorgenti
+### Option 2: Manual Build from Source
 
-Per chi preferisce compilare autonomamente l'eseguibile.
+For those who prefer to compile the executable themselves.
 
-#### Prerequisiti
+#### Prerequisites
 
-- Python 3.10 o superiore
-- FFmpeg (scaricabile da [ffmpeg.org](https://ffmpeg.org/download.html) oppure con sudo apt install ffmpeg)
-- Git (opzionale, per clonare il repository)
+- Python 3.10 or higher
+- FFmpeg (download from [ffmpeg.org](https://ffmpeg.org/download.html) or with `sudo apt install ffmpeg` on linux and `winget install ffmpeg` on Windows)
 
-#### Procedura
+#### Procedure
 
-##### 1. Clona o scarica il repository
+##### 1. Clone or download the repository
 
-```powershell
-git clone https://github.com/Jasssbo/IpAudioStreamMonitor.git
-cd Ip Audio Stream Monitor
+```powershell or bash
+git clone https://github.com/Jasssbo/IpStreamMonitor.git
 ```
 
-##### 2. Crea un virtual environment
+##### 2. Create a virtual environment
 
-```powershell/bash
-# Crea il venv
-cd Ip Audio Stream Monitor && python -m venv .venv
+```powershell or bash
+# Go in the repo directory with the terminal and Create the venv
+cd IpStreamMonitor && python -m venv .venv
 
-# Attiva il venv
-.\venv\Scripts\Activate.ps1 #se su Windows
+# Activate the venv
+.\.venv\Scripts\Activate.ps1   # on Windows PowerShell
 
-.\.\venv\Scripts\Activate.sh #se su Linux
+source .venv/bin/activate        # on Linux/macOS
 ```
 
-> Per Command Prompt usa invece: `venv\Scripts\activate.bat`
+> For Command Prompt use: `.venv\Scripts\activate.bat`
 
-##### 3. Installa le dipendenze
+##### 3. Install dependencies
 
-```powershell/bash
+```powershell or bash
 pip install -r src/requirements.txt
 ```
 
-Le dipendenze sono:
+##### 4. Install ffmpeg on your machine
 
-- `PyQt6` - Framework GUI
-- `pyqtgraph` - Grafici real-time
-- `numpy` - Elaborazione numerica
-- `pyloudnorm` - Misurazione LUFS
+Then in a new terminal window:
 
-##### 4. (Opzionale) Testa l'applicazione
-
-Prima di creare l'eseguibile, verifica che tutto funzioni:
-
-```powershell/bash
-python src/stream_monitor.py
+```powershell
+winget install ffmpeg           # on Windows PowerShell
 ```
 
-##### 5. Installa PyInstaller
+```bash
+sudo apt install ffmpeg         # on Linux
+```
 
-```powershell/bash
+Dependencies are:
+
+- `ffmpeg/ffplay` - AOIP stream reception and playback
+- `PyQt6` - GUI Framework
+- `pyqtgraph` - Real-time graphics
+- `numpy` - Numerical processing
+- `pyloudnorm` - LUFS metering
+
+---
+
+### Creating Windows installer with InnoSetup (optional)
+
+If you want to create your own custom installer:
+
+#### 1. Install PyInstaller
+
+```powershell or bash
 pip install pyinstaller
 ```
 
-##### 6. Aggiungi FFmpeg
+##### 2. Download and Add FFmpeg
 
-Copia `ffmpeg.exe` e `ffplay.exe` nella stessa cartella dell'eseguibile:
+Copy `ffmpeg.exe` and `ffplay.exe` to the ffmpeg_bin folder:
 
 ```text
 Windows/dist/StreamMonitor/
-├── HTTP-StreamMonitor.exe
+├── IpStreamMonitor.exe
 ├── ffmpeg.exe
 ├── ffplay.exe
 └── _internal/
 ```
 
-> Puoi scaricare FFmpeg da [gyan.dev](https://www.gyan.dev/ffmpeg/builds/) o [BtbN](https://github.com/BtbN/FFmpeg-Builds/releases)
+> You can download FFmpeg from [gyan.dev](https://www.gyan.dev/ffmpeg/builds/) or [BtbN](https://github.com/BtbN/FFmpeg-Builds/releases)
 
 ---
 
-##### 7. Crea l'eseguibile
+##### 3. Create the executable
 
-```powershell/bash
+```powershell or bash
 cd Windows
 pyinstaller stream_monitor_windows.spec
 ```
 
-L'eseguibile verrà creato in:
+The executable will be created in:
 
 ```text
-Windows/dist/StreamMonitor/StreamMonitor.exe
+Windows/dist/StreamMonitor/IpStreamMonitor.exe
 ```
 
-## Configurazione avanzata
+### Creating the installer (optional)
 
-### Creazione dell'installer (opzionale)
+If you want to create your own custom installer:
 
-Se vuoi creare il tuo installer personalizzato:
+1. Install [Inno Setup](https://jrsoftware.org/isinfo.php)
 
-1. Installa [Inno Setup](https://jrsoftware.org/isinfo.php)
-
-2. Assicurati che la struttura sia:
+2. Ensure the structure is:
 
    ```text
    Windows/
-   ├── dist/StreamMonitor/    ← output di PyInstaller
-   ├── ffmpeg_bin/            ← ffmpeg.exe e ffplay.exe
+   ├── dist/StreamMonitor/    ← PyInstaller output
+   ├── ffmpeg_bin/            ← ffmpeg.exe and ffplay.exe
    └── installer.iss
    ```
 
-3. Compila l'installer su InnoSetup:
+3. Compile the installer with Inno Setup:
 
    ```powershell
    iscc Windows/installer.iss
    ```
 
-4. L'installer verrà creato in `Windows/Output/` e potrai così condividere facilmente la tua versione.
+4. The installer will be created in `Windows/Output/` and you can easily share your version.
 
 ---
 
-## Requisiti di sistema
+## System Requirements
 
-| Requisito    | Minimo                          |
+| Requirement  | Minimum                         |
 | ------------ | ------------------------------- |
 | OS           | Windows 10 64-bit               |
-| Python       | 3.10+ (solo per build manuale)  |
+| Python       | 3.10+ (manual build only)       |
 | RAM          | 4 GB                            |
-| Spazio disco | ~200 MB                         |
+| Disk space   | ~200 MB                         |
 
 ---
 
-## Licenza
+## License
 
-Questo progetto è distribuito con licenza GNU GPLv3. Vedi il file [LICENSE](LICENSE) per i dettagli.
+This project is distributed under the GNU GPLv3 license. See the [LICENSE](LICENSE) file for details.
 
 ---
 
-## Autore
+## Author
 
 **Andrea Mazzurana** - [GitHub](https://github.com/Jasssbo)

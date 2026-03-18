@@ -5,7 +5,10 @@ a = Analysis(
     ['stream_monitor_windows.py'],
     pathex=[],
     binaries=[],
-    datas=[],
+    datas=[
+        ('presets', 'presets'),
+        ('metering_standards', 'metering_standards'),
+    ],
     hiddenimports=[
         'PyQt6.QtCore', 'PyQt6.QtGui', 'PyQt6.QtWidgets',
         'pyqtgraph', 'numpy', 'pyloudnorm'
@@ -23,13 +26,13 @@ pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
 exe = EXE(
     pyz, a.scripts, [],
     exclude_binaries=True,
-    name='StreamMonitor',
+    name='IpStreamMonitor',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
     upx=False,
     console=False,         # ← niente finestra console
-    icon=None,       # ← opzionale, metti il tuo .ico
+    icon="./temporary.ico"       # ← opzionale, metti il tuo .ico
 )
 
 coll = COLLECT(

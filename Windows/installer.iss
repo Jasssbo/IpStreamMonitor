@@ -1,13 +1,14 @@
-#define MyAppName "HTTP-StreamMonitor"
+#define MyAppName "Ip-StreamMonitor"
 #define MyAppVersion "0.1"
 #define MyAppPublisher "Andrea Mazzurana"
-#define MyAppExeName "HTTP-StreamMonitor.exe"
+#define MyAppExeName "IpStreamMonitor.exe"
 
 ; {#SourcePath} è automatico — Inno Setup lo risolve da solo
 ; basta che dist\ e ffmpeg_bin\ siano nella stessa cartella del .iss
 #define SourceApp SourcePath + "dist\StreamMonitor"
 #define SourceFfmpeg SourcePath + "ffmpeg_bin"
 #define SourceMetering SourcePath + "metering_standards"
+#define SourcePresets SourcePath + "presets"
 
 [Setup]
 AppId={{B73015F5-B54B-41C0-AAD1-7748A105639C}
@@ -31,7 +32,7 @@ MinVersion=10.0
 
 ; Output nella cartella Output\ accanto al .iss — relativo e automatico
 OutputDir={#SourcePath}Output
-OutputBaseFilename=HTPP-StreamMonitor_installer
+OutputBaseFilename=IpStreamMonitor_installer
 
 Compression=lzma
 SolidCompression=no
@@ -57,6 +58,7 @@ Source: "{#SourceApp}\_internal\*"; DestDir: "{app}\_internal"; Flags: ignorever
 Source: "{#SourceFfmpeg}\ffmpeg.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#SourceFfmpeg}\ffplay.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#SourceMetering}\*"; DestDir: "{app}\metering_standards"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "{#SourcePresets}\*"; DestDir: "{app}\presets"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Dirs]
 Name: "{app}\presets"
