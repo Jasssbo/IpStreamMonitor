@@ -13,7 +13,7 @@ Monitor up to 16 audio streams simultaneously with real-time waveform display, L
 - Simultaneous monitoring of up to 16 stereo audio streams
 - Real-time waveform visualization
 - LUFS Short-term and True Peak Left/Right metering compliant with EBU R128
-- Preset management for multiple configurations
+- Preset management, to automatically load sets of max. 16 stream IPs with associated names, with a simple .CSV file
 - Modern interface with PyQt6
 
 ---
@@ -144,8 +144,6 @@ Windows/dist/StreamMonitor/
 
 > You can download FFmpeg from [gyan.dev](https://www.gyan.dev/ffmpeg/builds/) or [BtbN](https://github.com/BtbN/FFmpeg-Builds/releases)
 
----
-
 ##### 3. Create the executable
 
 ```powershell or bash
@@ -158,6 +156,8 @@ The executable will be created in:
 ```text
 Windows/dist/StreamMonitor/IpStreamMonitor.exe
 ```
+
+---
 
 ### Creating the Windows installer with InnoSetup (optional)
 
