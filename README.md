@@ -120,9 +120,9 @@ Dependencies are:
 
 ---
 
-### Creating Windows installer with InnoSetup (optional)
+### Creating the .exe with PyInstaller (optional)
 
-If you want to create your own custom installer:
+If you want to create your own custom executable:
 
 #### 1. Install PyInstaller
 
@@ -159,7 +159,7 @@ The executable will be created in:
 Windows/dist/StreamMonitor/IpStreamMonitor.exe
 ```
 
-### Creating the installer (optional)
+### Creating the Windows installer with InnoSetup (optional)
 
 If you want to create your own custom installer:
 
