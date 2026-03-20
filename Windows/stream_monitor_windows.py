@@ -462,6 +462,7 @@ class OptionsDialog(QDialog):
             QComboBox QAbstractItemView {{
                 background: {BG_CARD2}; color: {TEXT};
                 selection-background-color: {ACCENT2};
+                font-family: 'Courier New'; font-size: 15px;
             }}
         """)
         self._build_ui()
@@ -916,6 +917,9 @@ class StreamCard(QFrame):
         self._plot.setMouseEnabled(x=False, y=False)
         self._plot.setYRange(-32768, 32768, padding=0)
         self._plot.getPlotItem().setContentsMargins(0, 0, 0, 0)
+        # Set tick font on hidden axes to prevent QFont warning
+        self._plot.getPlotItem().getAxis('left').setStyle(tickFont=QFont("Courier New", 9))
+        self._plot.getPlotItem().getAxis('bottom').setStyle(tickFont=QFont("Courier New", 9))
         
         # Linea separatrice centrale L/R
         center_line = pg.InfiniteLine(pos=0, angle=0, pen=pg.mkPen(color=GRAY, width=1, style=Qt.PenStyle.DotLine))
@@ -930,12 +934,20 @@ class StreamCard(QFrame):
         # ── Spectrum Analyzer ─────────────────────────────────────────────────
         self._spectrum_plot = pg.PlotWidget(background=BG_CARD2)
         self._spectrum_plot.setFixedHeight(80)
-        self._spectrum_plot.hideAxis("left")
         self._spectrum_plot.setMouseEnabled(x=False, y=False)
         self._spectrum_plot.setYRange(-80, 0, padding=0.05)
         # Logarithmic X axis: 20Hz to 20kHz
         self._spectrum_plot.setXRange(np.log10(20), np.log10(20000), padding=0)
         self._spectrum_plot.getPlotItem().setContentsMargins(0, 0, 0, 0)
+        
+        # Configure left axis with dB labels
+        left_axis = self._spectrum_plot.getPlotItem().getAxis('left')
+        left_axis.setStyle(tickLength=-5, tickTextOffset=2, tickFont=QFont("Courier New", 8))
+        left_axis.setPen(pg.mkPen(color=GRAY, width=1))
+        left_axis.setTextPen(pg.mkPen(color=TEXT_DIM))
+        left_axis.setWidth(30)
+        db_ticks = [(-60, "-60"), (-35, "-35"), (-10, "-10")]
+        left_axis.setTicks([db_ticks])
         
         # Configure bottom axis with frequency labels
         bottom_axis = self._spectrum_plot.getPlotItem().getAxis('bottom')
@@ -1509,6 +1521,8 @@ class MainWindow(QMainWindow):
                 color: {TEXT};
                 selection-background-color: {ACCENT2};
                 border: 1px solid {GRAY};
+                font-family: 'Courier New';
+                font-size: 14px;
             }}
         """)
 
