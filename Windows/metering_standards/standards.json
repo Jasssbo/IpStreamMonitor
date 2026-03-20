@@ -1,107 +1,107 @@
 {
   "EBU R128": {
     "lufs_target": -23.0,
-    "lufs_tolerance": 1.0,
-    "lufs_warning": 2.0,
+    "lufs_tolerance": 2.0,
+    "lufs_warning": 3.0,
     "tp_max": -1.0,
     "tp_warning": -2.0,
-    "description": "Standard broadcast europeo (TV, radio). Target -23 LUFS ±1 dB, TP max -1 dBTP"
+    "description": "European broadcast standard (TV, radio). Target -23 LUFS ±2 dB, TP max -1 dBTP"
   },
   "EBU R128 S1 (Streaming)": {
     "lufs_target": -16.0,
-    "lufs_tolerance": 1.0,
-    "lufs_warning": 2.0,
+    "lufs_tolerance": 2.0,
+    "lufs_warning": 3.0,
     "tp_max": -1.0,
     "tp_warning": -2.0,
-    "description": "EBU R128 per streaming (Spotify, Tidal). Target -16 LUFS, TP max -1 dBTP"
+    "description": "EBU R128 for streaming (Spotify, Tidal). Target -16 LUFS, TP max -1 dBTP"
   },
   "EBU R128 S2 (Podcast)": {
     "lufs_target": -18.0,
-    "lufs_tolerance": 1.0,
-    "lufs_warning": 2.0,
+    "lufs_tolerance": 2.0,
+    "lufs_warning": 3.0,
     "tp_max": -1.0,
     "tp_warning": -2.0,
-    "description": "EBU R128 S2 per podcast/audiobook. Target -18 LUFS, TP max -1 dBTP"
+    "description": "EBU R128 S2 for podcast/audiobook. Target -18 LUFS, TP max -1 dBTP"
   },
-  "Podcast (Generico)": {
+  "Podcast (Generic)": {
     "lufs_target": -18.0,
     "lufs_tolerance": 2.0,
     "lufs_warning": 3.0,
     "tp_max": -1.0,
     "tp_warning": -3.0,
-    "description": "Target generico podcast. -16 a -20 LUFS, TP max -1 dBTP"
+    "description": "Generic podcast target. -16 to -20 LUFS, TP max -1 dBTP"
   },
-  "AES71 (Dispositivi Portatili)": {
+  "AES71 (Portable Devices)": {
     "lufs_target": -16.0,
-    "lufs_tolerance": 1.0,
-    "lufs_warning": 2.0,
+    "lufs_tolerance": 2.0,
+    "lufs_warning": 3.0,
     "tp_max": -1.0,
     "tp_warning": -2.0,
-    "description": "AES71-2018 per dispositivi portatili. Target -16 LUFS, TP max -1 dBTP"
+    "description": "AES71-2018 for portable devices. Target -16 LUFS, TP max -1 dBTP"
   },
   "YouTube": {
     "lufs_target": -14.0,
-    "lufs_tolerance": 1.0,
-    "lufs_warning": 2.0,
+    "lufs_tolerance": 2.0,
+    "lufs_warning": 3.0,
     "tp_max": -1.0,
     "tp_warning": -2.0,
-    "description": "YouTube normalizza a -14 LUFS. TP max -1 dBTP consigliato"
+    "description": "YouTube normalizes to -14 LUFS. TP max -1 dBTP recommended"
   },
   "Spotify": {
     "lufs_target": -14.0,
-    "lufs_tolerance": 1.0,
-    "lufs_warning": 2.0,
+    "lufs_tolerance": 2.0,
+    "lufs_warning": 3.0,
     "tp_max": -1.0,
     "tp_warning": -2.0,
-    "description": "Spotify Loud normalizza a -14 LUFS. TP max -1 dBTP"
+    "description": "Spotify Loud normalizes to -14 LUFS. TP max -1 dBTP"
   },
   "Apple Music / iTunes": {
     "lufs_target": -16.0,
-    "lufs_tolerance": 1.0,
-    "lufs_warning": 1.5,
+    "lufs_tolerance": 2.0,
+    "lufs_warning": 3.0,
     "tp_max": -1.0,
     "tp_warning": -2.0,
-    "description": "Apple Sound Check normalizza a -16 LUFS. TP max -1 dBTP"
+    "description": "Apple Sound Check normalizes to -16 LUFS. TP max -1 dBTP"
   },
   "Amazon Music": {
     "lufs_target": -14.0,
-    "lufs_tolerance": 1.0,
-    "lufs_warning": 2.0,
+    "lufs_tolerance": 2.0,
+    "lufs_warning": 3.0,
     "tp_max": -2.0,
     "tp_warning": -3.0,
-    "description": "Amazon Music normalizza a -14 LUFS. TP max -2 dBTP consigliato"
+    "description": "Amazon Music normalizes to -14 LUFS. TP max -2 dBTP recommended"
   },
   "Netflix": {
     "lufs_target": -27.0,
     "lufs_tolerance": 2.0,
-    "lufs_warning": 2.0,
+    "lufs_warning": 3.0,
     "tp_max": -2.0,
     "tp_warning": -3.0,
-    "description": "Netflix dialogue-anchored. Target ~ -27 LUFS dialogo, TP max -2 dBTP"
+    "description": "Netflix dialogue-anchored. Target ~ -27 LUFS dialogue, TP max -2 dBTP"
   },
   "ATSC A/85 (USA Broadcast)": {
     "lufs_target": -24.0,
     "lufs_tolerance": 2.0,
-    "lufs_warning": 2.0,
+    "lufs_warning": 3.0,
     "tp_max": -2.0,
     "tp_warning": -3.0,
-    "description": "Standard broadcast USA/Canada. Target -24 LKFS ±2 dB, TP max -2 dBTP"
+    "description": "USA/Canada broadcast standard. Target -24 LKFS ±2 dB, TP max -2 dBTP"
   },
-  "ARIB TR-B32 (Giappone)": {
+  "ARIB TR-B32 (Japan)": {
     "lufs_target": -24.0,
     "lufs_tolerance": 2.0,
-    "lufs_warning": 2.0,
+    "lufs_warning": 3.0,
     "tp_max": -1.0,
     "tp_warning": -2.0,
-    "description": "Standard broadcast giapponese. Target -24 LUFS, TP max -1 dBTP"
+    "description": "Japanese broadcast standard. Target -24 LUFS, TP max -1 dBTP"
   },
   "ETSI TS 102 366 (DVB)": {
     "lufs_target": -23.0,
-    "lufs_tolerance": 1.0,
-    "lufs_warning": 2.0,
+    "lufs_tolerance": 2.0,
+    "lufs_warning": 3.0,
     "tp_max": -1.0,
     "tp_warning": -2.0,
-    "description": "Standard DVB per digital video broadcasting. Target -23 LUFS, TP max -1 dBTP"
+    "description": "DVB standard for digital video broadcasting. Target -23 LUFS, TP max -1 dBTP"
   },
   "AES77 (Cinema)": {
     "lufs_target": -24.0,
@@ -109,12 +109,12 @@
     "lufs_warning": 3.0,
     "tp_max": -1.0,
     "tp_warning": -3.0,
-    "description": "AES77 per cinema digitale. Target -24 LUFS, headroom esteso"
+    "description": "AES77 for digital cinema. Target -24 LUFS, extended headroom"
   },
   "ISO/IEC 23003-4 (MPEG-H)": {
     "lufs_target": -24.0,
-    "lufs_tolerance": 1.0,
-    "lufs_warning": 2.0,
+    "lufs_tolerance": 2.0,
+    "lufs_warning": 3.0,
     "tp_max": -1.0,
     "tp_warning": -2.0,
     "description": "MPEG-H 3D Audio loudness. Target -24 LUFS, TP max -1 dBTP"

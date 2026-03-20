@@ -1,18 +1,18 @@
 """
 Stream Audio Monitor
 ====================
-Monitora fino a 16 stream audio HTTP (MP3/AAC) stereo in parallelo.
-Mostra forma d'onda in tempo reale e misura LUFS (short-term ~3s).
+Monitor up to 16 stereo HTTP audio streams (MP3/AAC) in parallel.
+Displays real-time waveform and measures LUFS (short-term ~3s).
 
-Dipendenze:
+Dependencies:
     pip install PyQt6 pyqtgraph numpy pyloudnorm
 
-Requisiti di sistema:
-    - ffmpeg installato e nel PATH
+System requirements:
+    - ffmpeg installed and in PATH
 
-Uso:
+Usage:
     python stream_monitor.py
-    Poi aggiungi gli URL degli stream dalla GUI.
+    Then add stream URLs from the GUI.
 """
 
 import sys, threading, subprocess, re, csv, json, time, math, atexit, platform, shutil, ctypes
@@ -101,21 +101,36 @@ CONFIG = StreamConfig()
 class MeteringStandard:
     name: str
     lufs_target: float
-    lufs_tolerance: float
-    lufs_warning: float
-    tp_max: float
-    tp_warning: float
+    lufs_tolerance: float      # Green zone: target ± tolerance (typically 2)
+    lufs_warning: float        # Yellow extends this much beyond green (typically 3, so ±5 total)
+    tp_max: float              # Maximum TP before RED (typically -1)
+    tp_warning: float          # Warning threshold for high TP (typically -2)
     description: str
     
     def get_lufs_color(self, lufs: float) -> str:
         if lufs <= -60: return TEXT_DIM
-        green_min, green_max = self.lufs_target - self.lufs_tolerance, self.lufs_target + self.lufs_tolerance
-        yellow_min, yellow_max = green_min - self.lufs_warning, green_max + self.lufs_warning
-        return GREEN if green_min <= lufs <= green_max else (YELLOW if yellow_min <= lufs <= yellow_max else RED)
+        # Green zone: target ± tolerance
+        green_min = self.lufs_target - self.lufs_tolerance
+        green_max = self.lufs_target + self.lufs_tolerance
+        # Yellow zone extends warning dB beyond green
+        yellow_min = green_min - self.lufs_warning
+        yellow_max = green_max + self.lufs_warning
+        if green_min <= lufs <= green_max:
+            return GREEN
+        if yellow_min <= lufs <= yellow_max:
+            return YELLOW
+        return RED
     
     def get_tp_color(self, tp: float) -> str:
         if tp <= -60: return TEXT_DIM
-        return RED if tp > self.tp_max else (YELLOW if tp > self.tp_warning else GREEN)
+        # Too high (clipping risk)
+        self.tp_low_yellow = self.tp_max - self.tp_warning
+        self.tp_low_red = self.tp_low_yellow - self.tp_warning
+        if  self.tp_max > tp > self.tp_low_yellow: return GREEN
+        if  self.tp_low_yellow > tp > self.tp_low_red: return YELLOW
+        if tp > self.tp_max: return RED
+        if tp < self.tp_low_red: return RED
+        else: return RED
 
 
 # ── Caricamento Standard di Metering da JSON ────────────────────────────────
@@ -123,7 +138,7 @@ _METERING_STANDARDS_DIR = Path(__file__).parent / "metering_standards"
 _METERING_STANDARDS_FILE = _METERING_STANDARDS_DIR / "standards.json"
 
 def _load_metering_standards() -> Dict[str, MeteringStandard]:
-    """Carica gli standard di metering dal file JSON."""
+    """Load metering standards from JSON file."""
     standards = {}
     try:
         with open(_METERING_STANDARDS_FILE, "r", encoding="utf-8") as f:
@@ -132,19 +147,19 @@ def _load_metering_standards() -> Dict[str, MeteringStandard]:
             standards[name] = MeteringStandard(
                 name=name,
                 lufs_target=values["lufs_target"],
-                lufs_tolerance=values["lufs_tolerance"],
-                lufs_warning=values["lufs_warning"],
-                tp_max=values["tp_max"],
-                tp_warning=values["tp_warning"],
+                lufs_tolerance=values.get("lufs_tolerance", 2.0),  # Default: ±2 LUFS for green
+                lufs_warning=values.get("lufs_warning", 3.0),      # Default: additional ±3 for yellow
+                tp_max=values.get("tp_max", -1.0),
+                tp_warning=values.get("tp_warning", -2.0),
                 description=values["description"]
             )
     except Exception as e:
-        print(f"Errore caricamento metering standards: {e}")
-        # Fallback minimo se il file non esiste
+        print(f"Error loading metering standards: {e}")
+        # Minimal fallback if file doesn't exist
         standards["EBU R128"] = MeteringStandard(
-            name="EBU R128", lufs_target=-23.0, lufs_tolerance=1.0,
-            lufs_warning=2.0, tp_max=-1.0, tp_warning=-2.0,
-            description="Standard broadcast europeo"
+            name="EBU R128", lufs_target=-23.0, lufs_tolerance=2.0,
+            lufs_warning=3.0, tp_max=-1.0, tp_warning=-2.0,
+            description="European broadcast standard"
         )
     return standards
 
@@ -380,22 +395,27 @@ class OptionsDialog(QDialog):
 
     # ── stile slider condiviso ───────────────────────────────────────────
     _SLIDER_STYLE = f"""
+        QSlider {{
+            min-height: 24px;
+        }}
         QSlider::groove:horizontal {{
-            height: 4px;
+            height: 6px;
             background: {GRAY};
-            border-radius: 2px;
+            border-radius: 3px;
+            margin: 0 7px;
         }}
         QSlider::sub-page:horizontal {{
+            height: 6px;
             background: {ACCENT};
-            border-radius: 2px;
+            border-radius: 3px;
+            margin: 0 7px;
         }}
         QSlider::handle:horizontal {{
             background: {ACCENT};
-            border: 2px solid {BG_DARK};
             width: 14px;
             height: 14px;
-            margin: -5px 0;
             border-radius: 7px;
+            margin: -4px -7px;
         }}
     """
 
@@ -458,7 +478,7 @@ class OptionsDialog(QDialog):
         row.setSpacing(10)
 
         lbl = QLabel(label)
-        lbl.setFixedWidth(200)
+        lbl.setFixedWidth(180)
         lbl.setStyleSheet(f"color: {TEXT}; font-size: 14px; font-family: 'Courier New';")
         if tip:
             lbl.setToolTip(tip)
@@ -466,19 +486,23 @@ class OptionsDialog(QDialog):
         slider = QSlider(Qt.Orientation.Horizontal)
         slider.setRange(min_v, max_v)
         slider.setValue(value)
-        slider.setMinimumHeight(20)
+        slider.setFixedHeight(28)
+        slider.setFixedWidth(220)
         slider.setStyleSheet(self._SLIDER_STYLE)
 
         # SpinBox editabile sincronizzato con lo slider
         spinbox = QSpinBox()
         spinbox.setRange(min_v, max_v)
         spinbox.setValue(value)
-        spinbox.setFixedWidth(90)
+        spinbox.setFixedWidth(80)
+        spinbox.setFixedHeight(32)
+        spinbox.setButtonSymbols(QSpinBox.ButtonSymbols.NoButtons)
         spinbox.setStyleSheet(f"""
             QSpinBox {{
                 background: {BG_CARD2}; color: {ACCENT};
-                border: 1px solid {GRAY}; border-radius: 4px;
-                padding: 4px 8px; font-family: 'Courier New'; font-size: 14px;
+                border: 1px solid {GRAY2}; border-radius: 4px;
+                padding: 4px 8px;
+                font-family: 'Courier New'; font-size: 14px;
             }}
             QSpinBox:focus {{
                 border: 1px solid {ACCENT};
@@ -498,7 +522,7 @@ class OptionsDialog(QDialog):
         spinbox.valueChanged.connect(slider.setValue)
 
         row.addWidget(lbl)
-        row.addWidget(slider, 1)
+        row.addWidget(slider)
         row.addWidget(spinbox)
         row.addWidget(info_lbl)
         parent_layout.addLayout(row)
@@ -524,7 +548,7 @@ class OptionsDialog(QDialog):
         # ════════════════════════════════════════════════════════════════
         # Gruppo: Decodifica ffmpeg
         # ════════════════════════════════════════════════════════════════
-        grp_ff = QGroupBox("Decodifica ffmpeg")
+        grp_ff = QGroupBox("FFMPEG Decoding Parameters")
         ff_layout = QVBoxLayout(grp_ff)
         ff_layout.setSpacing(8)
 
@@ -534,7 +558,7 @@ class OptionsDialog(QDialog):
         sr_lbl = QLabel("Sample Rate")
         sr_lbl.setFixedWidth(200)
         sr_lbl.setStyleSheet(f"color: {TEXT}; font-size: 14px; font-family: 'Courier New';")
-        sr_lbl.setToolTip("Frequenza di campionamento audio usata da ffmpeg")
+        sr_lbl.setToolTip("Sample Rate used by FFMPEG")
         self._sr_combo = QComboBox()
         self._sr_combo.setMinimumHeight(28)
         for sr in [22050, 44100, 48000]:
@@ -553,7 +577,7 @@ class OptionsDialog(QDialog):
             "Chunk samples",
             min_v=64, max_v=2048, value=CONFIG.chunk_samples,
             fmt="smp",
-            tip="Campioni per chunk. Valori bassi = più reattivo, valori alti = più stabile"
+            tip="Samples per Chunk. Lower values = more reactive, Higher values = more stable"
         )
         self._chunk_slider.setSingleStep(64)
         self._chunk_slider.setPageStep(128)
@@ -568,7 +592,7 @@ class OptionsDialog(QDialog):
             "Probesize (KB)",
             min_v=8, max_v=200, value=CONFIG.probesize // 1000,
             fmt="KB",
-            tip="Byte che ffmpeg analizza per rilevare il formato. Meno = più veloce, più = più stabile"
+            tip="Bytes ffmpeg analyzes to detect format. Less = faster, more = stable"
         )
         self._probe_slider.valueChanged.connect(
             lambda v: self._probe_val.setText("KB"))
@@ -579,7 +603,7 @@ class OptionsDialog(QDialog):
             "Analyze duration (ms)",
             min_v=200, max_v=3000, value=CONFIG.analyzeduration // 1000,
             fmt="ms",
-            tip="Durata analisi iniziale ffmpeg. Meno = connessione più rapida"
+            tip="ffmpeg initial analysis duration. Less = faster connection"
         )
         self._analyze_slider.valueChanged.connect(
             lambda v: self._analyze_val.setText("ms"))
@@ -599,7 +623,7 @@ class OptionsDialog(QDialog):
             "Refresh UI (ms)",
             min_v=20, max_v=200, value=CONFIG.refresh_ms,
             fmt="ms",
-            tip="Intervallo aggiornamento UI. 20ms=50FPS (fluido), 100ms=10FPS (leggero)"
+            tip="UI refresh interval. 20ms=50FPS (smooth), 100ms=10FPS (light)"
         )
         self._refresh_slider.valueChanged.connect(
             lambda v: self._refresh_val.setText(f"ms ({1000//v} FPS)"))
@@ -610,18 +634,18 @@ class OptionsDialog(QDialog):
             "Waveform smoothing",
             min_v=1, max_v=16, value=CONFIG.waveform_smooth,
             fmt="×",
-            tip="Decimazione waveform. 1=massimo dettaglio/CPU, 16=molto smooth/leggero"
+            tip="Waveform decimation. 1=max detail/CPU, 16=very smooth/light"
         )
         self._smooth_slider.valueChanged.connect(
             lambda v: self._smooth_val.setText(
-                f"{'Dettaglio max' if v==1 else ('Smooth max' if v>=12 else '×')}"))
+                f"{'Max detail' if v==1 else ('Max smooth' if v==16 else '×')}"))
 
         layout.addWidget(grp_disp)
 
         # ════════════════════════════════════════════════════════════════
         # Gruppo: Metering Standard (colorazione LUFS/TP)
         # ════════════════════════════════════════════════════════════════
-        grp_meter = QGroupBox("Standard Metering (Colorazione)")
+        grp_meter = QGroupBox("Standard Metering (Coloring for LUFS/TP)")
         meter_layout = QVBoxLayout(grp_meter)
         meter_layout.setSpacing(8)
 
@@ -631,7 +655,7 @@ class OptionsDialog(QDialog):
         std_lbl = QLabel("Standard")
         std_lbl.setFixedWidth(200)
         std_lbl.setStyleSheet(f"color: {TEXT}; font-size: 14px; font-family: 'Courier New';")
-        std_lbl.setToolTip("Seleziona lo standard per la colorazione dei meter LUFS e True Peak")
+        std_lbl.setToolTip("Select the standard for LUFS and True Peak meter coloring")
         
         self._metering_combo = QComboBox()
         self._metering_combo.setMinimumHeight(28)
@@ -686,7 +710,7 @@ class OptionsDialog(QDialog):
         """)
         reset_btn.clicked.connect(self._reset_defaults)
 
-        cancel_btn = QPushButton("Annulla")
+        cancel_btn = QPushButton("Cancel")
         cancel_btn.setFixedHeight(40)
         cancel_btn.setStyleSheet(f"""
             QPushButton {{
@@ -698,7 +722,7 @@ class OptionsDialog(QDialog):
         """)
         cancel_btn.clicked.connect(self.reject)
 
-        apply_btn = QPushButton("✓ Applica")
+        apply_btn = QPushButton("✓ Apply")
         apply_btn.setFixedHeight(40)
         apply_btn.clicked.connect(self._apply)
 
@@ -712,13 +736,13 @@ class OptionsDialog(QDialog):
         return self._sr_combo.currentData() or 48000
 
     def _update_metering_desc(self, std_name: str):
-        """Aggiorna la descrizione e i valori target dello standard selezionato."""
+        """Updates the description and target values for the selected standard."""
         if std_name in METERING_STANDARDS:
             std = METERING_STANDARDS[std_name]
             self._std_desc.setText(std.description)
             self._std_values.setText(
                 f"Target: {std.lufs_target:+.0f} LUFS (±{std.lufs_tolerance:.0f} dB)  |  "
-                f"True Peak max: {std.tp_max:+.1f} dBTP"
+                f"True Peak max: {std.tp_max:+.0f} dBTP"
             )
         else:
             self._std_desc.setText("")
@@ -792,7 +816,7 @@ class StreamCard(QFrame):
                 border-radius: 8px;
             }}
         """)
-        self.setMinimumHeight(220)
+        self.setMinimumHeight(290)
 
         root = QVBoxLayout(self)
         root.setContentsMargins(10, 8, 10, 8)
@@ -813,10 +837,10 @@ class StreamCard(QFrame):
         self._index_label.setStyleSheet(f"color: {TEXT_DIM}; font-size: 13px; font-family: 'Courier New';")
         self._index_label.setFixedWidth(32)
 
-        # Nome editabile — mostra URL come tooltip scuro
+        # Editable name — shows URL as dark tooltip
         default_name = self._short_url()
         self._name_edit = QLineEdit(default_name)
-        self._name_edit.setPlaceholderText("Nome stream…")
+        self._name_edit.setPlaceholderText("Stream name…")
         self._name_edit.setToolTip(self.url)
         self._name_edit.setFixedHeight(32)
         self._name_edit.setStyleSheet(f"""
@@ -849,8 +873,8 @@ class StreamCard(QFrame):
         """)
         self._name_edit.editingFinished.connect(self._on_name_changed)
 
-        # Bottone ascolto
-        self._listen_btn = QPushButton("▶ Ascolta")
+        # Listen button
+        self._listen_btn = QPushButton("▶ Listen")
         self._listen_btn.setFixedHeight(28)
         self._listen_btn.setFixedWidth(100)
         self._listen_btn.setStyleSheet(self._listen_btn_style(False))
@@ -903,6 +927,36 @@ class StreamCard(QFrame):
         self._curve_r = self._plot.plot([], [], pen=pen_r)
         root.addWidget(self._plot, 1)
 
+        # ── Spectrum Analyzer ─────────────────────────────────────────────────
+        self._spectrum_plot = pg.PlotWidget(background=BG_CARD2)
+        self._spectrum_plot.setFixedHeight(80)
+        self._spectrum_plot.hideAxis("left")
+        self._spectrum_plot.setMouseEnabled(x=False, y=False)
+        self._spectrum_plot.setYRange(-80, 0, padding=0.05)
+        # Logarithmic X axis: 20Hz to 20kHz
+        self._spectrum_plot.setXRange(np.log10(20), np.log10(20000), padding=0)
+        self._spectrum_plot.getPlotItem().setContentsMargins(0, 0, 0, 0)
+        
+        # Configure bottom axis with frequency labels
+        bottom_axis = self._spectrum_plot.getPlotItem().getAxis('bottom')
+        bottom_axis.setStyle(tickLength=-5, tickTextOffset=2, tickFont=QFont("Courier New", 9))
+        bottom_axis.setPen(pg.mkPen(color=GRAY, width=1))
+        bottom_axis.setTextPen(pg.mkPen(color=TEXT_DIM))
+        # Custom ticks at 20Hz, 100Hz, 1kHz, 10kHz, 20kHz
+        freq_ticks = [(np.log10(20), "20"), (np.log10(100), "100"), 
+                      (np.log10(1000), "1k"), (np.log10(10000), "10k"), (np.log10(20000), "20k")]
+        bottom_axis.setTicks([freq_ticks])
+        
+        # Add grid
+        self._spectrum_plot.showGrid(x=True, y=False, alpha=0.3)
+        
+        # Spectrum curves (stessi colori della waveform)
+        pen_spec_l = pg.mkPen(color=ACCENT, width=1.5)
+        pen_spec_r = pg.mkPen(color="#ff40ff", width=1.5)
+        self._spectrum_curve_l = self._spectrum_plot.plot([], [], pen=pen_spec_l)
+        self._spectrum_curve_r = self._spectrum_plot.plot([], [], pen=pen_spec_r)
+        root.addWidget(self._spectrum_plot)
+
         # ── LUFS + TP Meter ───────────────────────────────────────────────────
         meter_row = QHBoxLayout()
         meter_row.setSpacing(8)
@@ -916,7 +970,7 @@ class StreamCard(QFrame):
         self._tp_label.setStyleSheet(
             f"color: {TEXT_DIM}; font-size: 11px; font-family: 'Courier New'; font-weight: bold;")
         self._tp_label.setFixedWidth(180)
-        self._tp_label.setToolTip("True Peak (dBFS) - L=sinistro R=destro")
+        self._tp_label.setToolTip("True Peak (dBFS) - L=Left R=Right")
 
         self._lufs_bar = QProgressBar()
         self._lufs_bar.setRange(0, 100)
@@ -981,7 +1035,7 @@ class StreamCard(QFrame):
 
     def set_listening(self, active: bool):
         self._listening = active
-        self._listen_btn.setText("■ Stop" if active else "▶ Ascolta")
+        self._listen_btn.setText("■ Stop" if active else "▶ Listen")
         self._listen_btn.setStyleSheet(self._listen_btn_style(active))
         # Bordo card evidenziato durante ascolto
         border_color = GREEN if active else GRAY
@@ -1084,6 +1138,57 @@ class StreamCard(QFrame):
         # Aggiorna waveform stereo (L e R)
         self._curve_l.setData(list(self._waveform_buf_l))
         self._curve_r.setData(list(self._waveform_buf_r))
+
+        # ── Spectrum FFT (L e R separati) ─────────────────────────────────
+        if self._lufs_filled >= 2048:
+            # Prendi gli ultimi 2048 campioni per FFT
+            fft_size = 2048
+            if self._lufs_filled >= fft_size:
+                # Calcola indice di partenza nel ring buffer
+                start_idx = (self._lufs_write_idx - fft_size) % self._lufs_buf_size
+                if start_idx + fft_size <= self._lufs_buf_size:
+                    fft_data = self._lufs_buf[start_idx:start_idx + fft_size]
+                else:
+                    # Wrap around
+                    first_part = self._lufs_buf[start_idx:]
+                    second_part = self._lufs_buf[:fft_size - len(first_part)]
+                    fft_data = np.vstack([first_part, second_part])
+                
+                # Applica finestra di Hanning e calcola FFT per L e R
+                window = np.hanning(fft_size)
+                left_ch = fft_data[:, 0].astype(np.float64) / 32768.0
+                right_ch = fft_data[:, 1].astype(np.float64) / 32768.0
+                
+                fft_l = np.abs(np.fft.rfft(left_ch * window))
+                fft_r = np.abs(np.fft.rfft(right_ch * window))
+                
+                # Converti in dB (con floor a -80 dB)
+                eps = 1e-10
+                db_l = 20 * np.log10(fft_l / fft_size + eps)
+                db_r = 20 * np.log10(fft_r / fft_size + eps)
+                db_l = np.clip(db_l, -80, 0)
+                db_r = np.clip(db_r, -80, 0)
+                
+                # Map FFT bins to logarithmic frequency scale (20Hz - 20kHz)
+                sample_rate = CONFIG.sample_rate
+                freq_per_bin = sample_rate / fft_size
+                
+                # Create logarithmically spaced frequency points
+                n_display_points = 256
+                log_freqs = np.logspace(np.log10(20), np.log10(20000), n_display_points)
+                
+                # Map frequencies to FFT bin indices
+                bin_indices = (log_freqs / freq_per_bin).astype(int)
+                bin_indices = np.clip(bin_indices, 0, len(db_l) - 1)
+                
+                # Sample FFT at these indices
+                db_l_log = db_l[bin_indices]
+                db_r_log = db_r[bin_indices]
+                
+                # X axis in log10 scale (matches plot X range)
+                x_axis = np.log10(log_freqs)
+                self._spectrum_curve_l.setData(x_axis, db_l_log)
+                self._spectrum_curve_r.setData(x_axis, db_r_log)
 
         # ── LUFS/TP dal ring buffer numpy stereo ───────────────────────
         if self._lufs_filled >= CONFIG.sample_rate // 2:
@@ -1271,10 +1376,10 @@ class MainWindow(QMainWindow):
         self._metering_std_label = QLabel(f"📊 {CURRENT_METERING_STANDARD}")
         std = get_current_metering_standard()
         self._metering_std_label.setToolTip(
-            f"Standard Metering attivo: {std.name}\n"
+            f"Active Metering Standard: {std.name}\n"
             f"Target LUFS: {std.lufs_target:+.0f} (±{std.lufs_tolerance:.0f} dB)\n"
-            f"True Peak max: {std.tp_max:+.1f} dBTP\n\n"
-            "Modifica da ⚙ Opzioni"
+            f"True Peak max: {std.tp_max:+.0f} dBTP\n\n"
+            "Change in ⚙ Options"
         )
         self._metering_std_label.setStyleSheet(f"color: {ACCENT}; font-size: 14px; font-family: 'Courier New';")
 
@@ -1285,8 +1390,8 @@ class MainWindow(QMainWindow):
         # Area testo multi-URL
         self._url_input = QTextEdit()
         self._url_input.setPlaceholderText(
-            "Incolla uno o più URL…"
-            "\n(uno per riga, o separati da spazio/virgola)"
+            "Paste one or more URLs…"
+            "\n(one per line, or separated by space/comma)"
         )
         self._url_input.setMinimumWidth(350)
         self._url_input.setFixedHeight(72)
@@ -1307,7 +1412,7 @@ class MainWindow(QMainWindow):
         add_col = QVBoxLayout()
         add_col.setSpacing(2)
 
-        self._add_btn = QPushButton("+ Aggiungi Stream")
+        self._add_btn = QPushButton("+ Add Stream")
         self._add_btn.setFixedHeight(50)
         self._add_btn.setFixedWidth(180)
         self._add_btn.clicked.connect(self._add_streams)
@@ -1320,17 +1425,17 @@ class MainWindow(QMainWindow):
         add_col.addWidget(self._count_label)
 
         # Pulsante opzioni
-        options_btn = QPushButton("⚙ Opzioni")
+        options_btn = QPushButton("⚙")
         options_btn.setFixedHeight(72)
-        options_btn.setFixedWidth(110)
-        options_btn.setToolTip("Configura qualità e latenza degli stream")
+        options_btn.setFixedWidth(90)
+        options_btn.setToolTip("Configure ffmpeg decoding and UI parameters, choose audio level Standards.")
         options_btn.setStyleSheet(f"""
             QPushButton {{
                 background: {BG_CARD2};
                 color: {TEXT_DIM};
                 border: 1px solid {GRAY};
                 border-radius: 5px;
-                font-size: 13px;
+                font-size: 22px;
                 font-weight: bold;
                 font-family: 'Courier New';
             }}
@@ -1342,10 +1447,10 @@ class MainWindow(QMainWindow):
         """)
         options_btn.clicked.connect(self._show_options)
 
-        quit_btn = QPushButton("⏻  Esci")
+        quit_btn = QPushButton("⏻  Exit")
         quit_btn.setFixedHeight(72)
         quit_btn.setFixedWidth(100)
-        quit_btn.setToolTip("Ferma tutti gli stream e chiude il programma")
+        quit_btn.setToolTip("Stop all streams and close the program")
         quit_btn.setStyleSheet(f"""
             QPushButton {{
                 background: transparent;
@@ -1430,15 +1535,13 @@ class MainWindow(QMainWindow):
             """)
             return b
 
-        load_btn   = _small_btn("▶ Carica",   "Carica il preset selezionato (aggiunge agli stream attivi)")
-        replace_btn= _small_btn("↺ Sostituisci", "Chiude tutti gli stream e carica il preset selezionato")
-        save_btn   = _small_btn("💾 Sovrascrivi",    "Salva gli stream attivi come preset", GREEN)
-        saveas_btn = _small_btn("💾 Salva come…", "Salva con nome nuovo", GREEN)
-        del_btn    = _small_btn("🗑 Elimina",  "Elimina il preset selezionato", RED)
-        browse_btn = _small_btn("📂 Apri file…", "Carica un file CSV da un percorso qualsiasi")
+        load_btn   = _small_btn("▶ Load",   "Load selected preset (replaces if streams are active)")
+        save_btn   = _small_btn("💾 Overwrite",    "Save active streams as preset", GREEN)
+        saveas_btn = _small_btn("💾 Save as…", "Save with a new name", GREEN)
+        del_btn    = _small_btn("🗑 Delete",  "Delete selected preset", RED)
+        browse_btn = _small_btn("📂 Open file…", "Load a CSV file from any location")
 
         load_btn.clicked.connect(self._preset_load)
-        replace_btn.clicked.connect(self._preset_replace)
         save_btn.clicked.connect(self._preset_save)
         saveas_btn.clicked.connect(self._preset_save_as)
         del_btn.clicked.connect(self._preset_delete)
@@ -1447,7 +1550,6 @@ class MainWindow(QMainWindow):
         preset_bar.addWidget(preset_icon)
         preset_bar.addWidget(self._preset_combo, 1)
         preset_bar.addWidget(load_btn)
-        preset_bar.addWidget(replace_btn)
         preset_bar.addWidget(save_btn)
         preset_bar.addWidget(saveas_btn)
         preset_bar.addWidget(del_btn)
@@ -1469,8 +1571,8 @@ class MainWindow(QMainWindow):
 
         # ── Hint iniziale ──
         self._hint = QLabel(
-            "Nessuno stream attivo.\n"
-            "Incolla URL qui sopra oppure carica un preset CSV."
+            "No active streams.\n"
+            "Paste URLs above or load a CSV preset."
         )
         self._hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._hint.setStyleSheet(f"color: {TEXT_DIM}; font-size: 16px; line-height: 1.8;")
@@ -1486,7 +1588,7 @@ class MainWindow(QMainWindow):
         self._preset_combo.clear()
         files = self._preset_files()
         if not files:
-            self._preset_combo.addItem("— nessun preset —")
+            self._preset_combo.addItem("— no presets —")
             self._preset_combo.setEnabled(False)
         else:
             self._preset_combo.setEnabled(True)
@@ -1508,7 +1610,7 @@ class MainWindow(QMainWindow):
                         for r in reader
                         if len(r) >= 2 and r[1].strip().startswith("http")]
         except Exception as e:
-            QMessageBox.critical(self, "Errore lettura preset", str(e))
+            QMessageBox.critical(self, "Preset read error", str(e))
             return
 
         if not rows:
@@ -1545,8 +1647,8 @@ class MainWindow(QMainWindow):
             self._update_count()
 
         if skipped:
-            QMessageBox.information(self, "Preset caricato",
-                                    f"✓ {added} stream aggiunti, {skipped} ignorati (duplicati o limite raggiunto).")
+            QMessageBox.information(self, "Preset loaded",
+                                    f"✓ {added} streams added, {skipped} skipped (duplicates or limit reached).")
 
     def _close_all_streams(self):
         """Ferma e rimuove tutti gli stream attivi."""
@@ -1563,7 +1665,7 @@ class MainWindow(QMainWindow):
     def _save_preset_to(self, path: Path):
         """Salva nome+url di tutti gli stream attivi nel file indicato."""
         if not self._cards:
-            QMessageBox.warning(self, "Nessuno stream", "Non ci sono stream attivi da salvare.")
+            QMessageBox.warning(self, "No streams", "There are no active streams to save.")
             return
         try:
             with open(path, "w", newline="", encoding="utf-8") as f:
@@ -1579,25 +1681,25 @@ class MainWindow(QMainWindow):
                     self._preset_combo.setCurrentIndex(i)
                     break
         except Exception as e:
-            QMessageBox.critical(self, "Errore salvataggio", str(e))
+            QMessageBox.critical(self, "Save error", str(e))
 
     # ── Preset: azioni bottoni ────────────────────────────────────────────────
     def _preset_load(self):
         path = self._selected_preset_path()
-        if path:
-            self._load_preset_file(path, replace=False)
-
-    def _preset_replace(self):
-        path = self._selected_preset_path()
         if not path:
             return
-        reply = QMessageBox.question(
-            self, "Conferma",
-            f"Chiudere tutti gli stream attivi e caricare «{path.stem}»?",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
-        )
-        if reply == QMessageBox.StandardButton.Yes:
-            self._load_preset_file(path, replace=True)
+        # Se ci sono stream attivi, chiedi conferma e sostituisci
+        if self._cards:
+            reply = QMessageBox.question(
+                self, "Confirm",
+                f"Close all active streams and load «{path.stem}»?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+            )
+            if reply == QMessageBox.StandardButton.Yes:
+                self._load_preset_file(path, replace=True)
+        else:
+            # Nessuno stream attivo, carica direttamente
+            self._load_preset_file(path, replace=False)
 
     def _preset_save(self):
         """Sovrascrive il preset selezionato, oppure chiede nome se nessuno selezionato."""
@@ -1609,9 +1711,9 @@ class MainWindow(QMainWindow):
 
     def _preset_save_as(self):
         name, ok = QInputDialog.getText(
-            self, "Salva preset come",
-            "Nome del preset (senza estensione):",
-            text="mio_preset"
+            self, "Save preset as",
+            "Preset name (without extension):",
+            text="my_preset"
         )
         if not ok or not name.strip():
             return
@@ -1625,8 +1727,8 @@ class MainWindow(QMainWindow):
         if not path:
             return
         reply = QMessageBox.question(
-            self, "Conferma eliminazione",
-            f"Eliminare il preset «{path.stem}»?\nIl file verrà rimosso dal disco.",
+            self, "Confirm deletion",
+            f"Delete preset «{path.stem}»?\nThe file will be removed from disk.",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
         )
         if reply == QMessageBox.StandardButton.Yes:
@@ -1634,14 +1736,14 @@ class MainWindow(QMainWindow):
                 path.unlink()
                 self._refresh_preset_list()
             except Exception as e:
-                QMessageBox.critical(self, "Errore", str(e))
+                QMessageBox.critical(self, "Error", str(e))
 
     def _preset_browse(self):
-        """Apre un file CSV da percorso libero (fuori dalla cartella presets/)."""
+        """Opens a CSV file from any path (outside the presets/ folder)."""
         path_str, _ = QFileDialog.getOpenFileName(
-            self, "Apri file preset CSV",
+            self, "Open CSV preset file",
             str(self._preset_dir),
-            "File CSV (*.csv);;Tutti i file (*)"
+            "CSV files (*.csv);;All files (*)"
         )
         if path_str:
             self._load_preset_file(Path(path_str), replace=False)
@@ -1657,7 +1759,7 @@ class MainWindow(QMainWindow):
         urls = [u.strip() for u in candidates if u.strip().startswith("http")]
 
         if not urls:
-            QMessageBox.warning(self, "URL non validi", "Nessun URL HTTP/HTTPS rilevato.")
+            QMessageBox.warning(self, "Invalid URLs", "No HTTP/HTTPS URL detected.")
             return
 
         added = 0
@@ -1689,13 +1791,13 @@ class MainWindow(QMainWindow):
         # Feedback sintetico
         msgs = []
         if added:
-            msgs.append(f"✓ {added} stream aggiunti.")
+            msgs.append(f"✓ {added} streams added.")
         if skipped_dup:
-            msgs.append(f"⚠ {len(skipped_dup)} già presenti (ignorati).")
+            msgs.append(f"⚠ {len(skipped_dup)} already present (skipped).")
         if skipped_limit:
-            msgs.append(f"✗ {len(skipped_limit)} non aggiunti: limite {self.MAX_STREAMS} raggiunto.")
+            msgs.append(f"✗ {len(skipped_limit)} not added: limit {self.MAX_STREAMS} reached.")
         if msgs and (skipped_dup or skipped_limit):
-            QMessageBox.information(self, "Risultato", "\n".join(msgs))
+            QMessageBox.information(self, "Result", "\n".join(msgs))
 
     def _remove_card(self, card: StreamCard):
         if card not in self._cards:
@@ -1795,31 +1897,31 @@ class MainWindow(QMainWindow):
         dialog.exec()
     
     def _on_config_changed(self):
-        """Chiamato quando la configurazione viene modificata."""
+        """Called when configuration is changed."""
         self._timer.setInterval(CONFIG.refresh_ms)
         metering_std = get_current_metering_standard()
         
-        # Aggiorna l'etichetta dello standard metering nella UI
+        # Update the metering standard label in the UI
         self._metering_std_label.setText(f"📊 {metering_std.name}")
         self._metering_std_label.setToolTip(
-            f"Standard Metering attivo: {metering_std.name}\n"
+            f"Active Metering Standard: {metering_std.name}\n"
             f"Target LUFS: {metering_std.lufs_target:+.0f} (±{metering_std.lufs_tolerance:.0f} dB)\n"
-            f"True Peak max: {metering_std.tp_max:+.1f} dBTP\n\n"
-            "Modifica da ⚙ Opzioni"
+            f"True Peak max: {metering_std.tp_max:+.0f} dBTP\n\n"
+            "Change in ⚙ Options"
         )
         
         QMessageBox.information(
             self,
-            "Configurazione Applicata",
-            f"Impostazioni aggiornate.\n\n"
+            "Configuration Applied",
+            f"Settings updated.\n\n"
             f"Sample Rate: {CONFIG.sample_rate} Hz  |  "
             f"Chunk: {CONFIG.chunk_samples} smp ({CONFIG.chunk_ms:.1f} ms)\n"
             f"Refresh: {CONFIG.refresh_ms} ms ({CONFIG.fps:.0f} FPS)  |  "
             f"Smooth: {CONFIG.waveform_smooth}×\n\n"
             f"Standard Metering: {metering_std.name}\n"
             f"Target LUFS: {metering_std.lufs_target:+.0f}  |  "
-            f"TP max: {metering_std.tp_max:+.1f} dBTP\n\n"
-            f"Le nuove impostazioni si applicano immediatamente."
+            f"TP max: {metering_std.tp_max:+.0f} dBTP\n\n"
+            f"New settings apply immediately."
         )
 
     def _on_session_unlock(self):

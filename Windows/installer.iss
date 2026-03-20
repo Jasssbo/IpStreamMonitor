@@ -7,11 +7,9 @@
 ; basta che dist\ e ffmpeg_bin\ siano nella stessa cartella del .iss
 #define SourceApp SourcePath + "dist\StreamMonitor"
 #define SourceFfmpeg SourcePath + "ffmpeg_bin"
-#define SourceMetering SourcePath + "metering_standards"
-#define SourcePresets SourcePath + "presets"
 
 [Setup]
-AppId={{B73015F5-B54B-41C0-AAD1-7748A105639C}
+AppId={B73015F5-B54B-41C0-AAD1-7748A105639C}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
 AppPublisher={#MyAppPublisher}
@@ -33,6 +31,9 @@ MinVersion=10.0
 ; Output nella cartella Output\ accanto al .iss — relativo e automatico
 OutputDir={#SourcePath}Output
 OutputBaseFilename=IpStreamMonitor_installer
+
+; License agreement - user must accept before installing
+LicenseFile={#SourcePath}\LICENSE
 
 Compression=lzma
 SolidCompression=no
@@ -57,12 +58,8 @@ Source: "{#SourceApp}\{#MyAppExeName}"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#SourceApp}\_internal\*"; DestDir: "{app}\_internal"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "{#SourceFfmpeg}\ffmpeg.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#SourceFfmpeg}\ffplay.exe"; DestDir: "{app}"; Flags: ignoreversion
-Source: "{#SourceMetering}\*"; DestDir: "{app}\metering_standards"; Flags: ignoreversion recursesubdirs createallsubdirs
-Source: "{#SourcePresets}\*"; DestDir: "{app}\presets"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Dirs]
-Name: "{app}\presets"
-Name: "{app}\metering_standards"
 Name: "{app}\logs"
 
 [Icons]
@@ -82,7 +79,6 @@ Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#MyAppName}}
 Filename: "taskkill"; Parameters: "/F /IM {#MyAppExeName}"; Flags: runhidden nowait; RunOnceId: "KillApp"
 [UninstallDelete]
 Type: filesandordirs; Name: "{app}\logs"
-Type: dirifempty; Name: "{app}\presets"
 
 [Code]
 var
