@@ -9,7 +9,7 @@
 #define SourceFfmpeg SourcePath + "ffmpeg_bin"
 
 [Setup]
-AppId={B73015F5-B54B-41C0-AAD1-7748A105639C}
+AppId={{B73015F5-B54B-41C0-AAD1-7748A105639C}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
 AppPublisher={#MyAppPublisher}
