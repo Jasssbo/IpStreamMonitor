@@ -11,7 +11,7 @@ Monitor up to 16 audio streams simultaneously with real-time waveform display + 
 ## Features
 
 - Simultaneous monitoring of up to 16 stereo audio streams
-- Real-time waveform visualization
+- Real-time waveform visualization + L/R spectrum analysis
 - LUFS Short-term and True Peak Left/Right metering compliant with EBU R128
 - Preset management, to automatically load sets of max. 16 stream IPs with associated names, with a simple .CSV file
 - Modern interface with PyQt6
