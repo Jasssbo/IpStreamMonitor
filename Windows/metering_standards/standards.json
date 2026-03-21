@@ -4,7 +4,7 @@
     "lufs_tolerance": 2.0,
     "lufs_warning": 3.0,
     "tp_max": -1.0,
-    "tp_warning": -2.0,
+    "tp_warning": -4.0,
     "description": "European broadcast standard (TV, radio). Target -23 LUFS ±2 dB, TP max -1 dBTP"
   },
   "EBU R128 S1 (Streaming)": {
@@ -12,7 +12,7 @@
     "lufs_tolerance": 2.0,
     "lufs_warning": 3.0,
     "tp_max": -1.0,
-    "tp_warning": -2.0,
+    "tp_warning": -4.0,
     "description": "EBU R128 for streaming (Spotify, Tidal). Target -16 LUFS, TP max -1 dBTP"
   },
   "EBU R128 S2 (Podcast)": {
@@ -20,7 +20,7 @@
     "lufs_tolerance": 2.0,
     "lufs_warning": 3.0,
     "tp_max": -1.0,
-    "tp_warning": -2.0,
+    "tp_warning": -4.0,
     "description": "EBU R128 S2 for podcast/audiobook. Target -18 LUFS, TP max -1 dBTP"
   },
   "Podcast (Generic)": {
@@ -36,7 +36,7 @@
     "lufs_tolerance": 2.0,
     "lufs_warning": 3.0,
     "tp_max": -1.0,
-    "tp_warning": -2.0,
+    "tp_warning": -4.0,
     "description": "AES71-2018 for portable devices. Target -16 LUFS, TP max -1 dBTP"
   },
   "YouTube": {
@@ -44,7 +44,7 @@
     "lufs_tolerance": 2.0,
     "lufs_warning": 3.0,
     "tp_max": -1.0,
-    "tp_warning": -2.0,
+    "tp_warning": -4.0,
     "description": "YouTube normalizes to -14 LUFS. TP max -1 dBTP recommended"
   },
   "Spotify": {
@@ -52,7 +52,7 @@
     "lufs_tolerance": 2.0,
     "lufs_warning": 3.0,
     "tp_max": -1.0,
-    "tp_warning": -2.0,
+    "tp_warning": -3.0,
     "description": "Spotify Loud normalizes to -14 LUFS. TP max -1 dBTP"
   },
   "Apple Music / iTunes": {

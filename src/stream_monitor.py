@@ -61,9 +61,6 @@ class StreamConfig:
         self.refresh_ms       = 50       # ms tra refresh UI (20 FPS)
         self.waveform_smooth  = 4        # decimazione waveform: 1=massimo dettaglio, 16=molto smooth
 
-        # ── Stima latenza ──
-        self.network_buffer_ms = 150     # ms buffer stimato
-
     @property
     def chunk_bytes(self) -> int:
         return self.chunk_samples * 4    # stereo s16le (2 canali × 2 byte)
@@ -80,17 +77,6 @@ class StreamConfig:
     def fps(self) -> float:
         return 1000 / self.refresh_ms
 
-    def calculate_latency(self) -> float:
-        """
-        Latenza stimata = network_buffer + probe/analyze ffmpeg + chunk buffer + overhead.
-        Nota: questo è il floor teorico, non la latenza reale di rete dello stream.
-        """
-        probe_time_ms    = (self.probesize / 100000) * 50
-        analyze_time_ms  = self.analyzeduration / 1000
-        chunk_buffer_ms  = self.chunk_ms * 2
-        processing_ms    = 10
-        return self.network_buffer_ms + probe_time_ms + analyze_time_ms + chunk_buffer_ms + processing_ms
-
 
 # Istanza globale
 CONFIG = StreamConfig()
@@ -104,7 +90,7 @@ class MeteringStandard:
     lufs_tolerance: float      # Green zone: target ± tolerance (typically 2)
     lufs_warning: float        # Yellow extends this much beyond green (typically 3, so ±5 total)
     tp_max: float              # Maximum TP before RED (typically -1)
-    tp_warning: float          # Warning threshold for high TP (typically -2)
+    tp_warning: float          # Warning threshold for low TP (typically -4)
     description: str
     
     def get_lufs_color(self, lufs: float) -> str:
@@ -122,15 +108,18 @@ class MeteringStandard:
         return RED
     
     def get_tp_color(self, tp: float) -> str:
-        if tp <= -60: return TEXT_DIM
-        # Too high (clipping risk)
-        self.tp_low_yellow = self.tp_max - self.tp_warning
-        self.tp_low_red = self.tp_low_yellow - self.tp_warning
-        if  self.tp_max > tp > self.tp_low_yellow: return GREEN
-        if  self.tp_low_yellow > tp > self.tp_low_red: return YELLOW
-        if tp > self.tp_max: return RED
-        if tp < self.tp_low_red: return RED
-        else: return RED
+        if tp <= -60: 
+            return TEXT_DIM
+        if tp > self.tp_max:
+            return RED      # Above maximum - clipping danger
+        if tp >= self.tp_warning:
+            return GREEN    # In the acceptable range (between tp_max and tp_warning)
+        green_range = self.tp_max - self.tp_warning 
+        yellow_floor = self.tp_warning - green_range  
+        if tp >= yellow_floor:
+            return YELLOW   # Below warning threshold (getting too quiet)
+        return RED          # Way too quiet (below double the acceptable range)
+
 
 
 # ── Caricamento Standard di Metering da JSON ────────────────────────────────
@@ -349,8 +338,12 @@ class AudioPlayer(QObject):
             self._thread = None
 
     def _run(self):
-        cmd = ["ffplay", "-nodisp", "-reconnect", "1", "-reconnect_streamed", "1",
-               "-reconnect_delay_max", "5", "-vn", self.url]
+        # Low-latency flags matching StreamWorker, using CONFIG settings
+        cmd = ["ffplay", "-nodisp",
+               "-fflags", "+nobuffer+flush_packets", "-flags", "low_delay",
+               "-probesize", str(CONFIG.probesize), "-analyzeduration", str(CONFIG.analyzeduration),
+               "-reconnect", "1", "-reconnect_streamed", "1", "-reconnect_delay_max", "5",
+               "-vn", self.url]
         popen_kw = {"stdout": subprocess.DEVNULL, "stderr": subprocess.DEVNULL}
         if IS_WINDOWS: popen_kw["creationflags"] = subprocess.CREATE_NO_WINDOW
         proc = None
