@@ -12,8 +12,8 @@ Jitter (σ latenza) -> Variabilità connessione
 Tempo dall'ultima riconnessione -> Stabilità
 Correlazione stereo -> Rilevare mono mascherato da stereo
 Dynamic Range -> Per valutare compressione eccessiva
-Silence detection -> Stream "morto" ma connesso
 Loudness Range (LRA) -> Variabilità dinamica (EBU R128)
+Silence detection -> Stream "morto" ma connesso
 Peak-to-LUFS ratio -> Crest factor ~ compressione.
 ```
 

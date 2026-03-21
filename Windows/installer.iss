@@ -1,5 +1,5 @@
 #define MyAppName "Ip-StreamMonitor"
-#define MyAppVersion "0.1"
+#define MyAppVersion "2.0.3"
 #define MyAppPublisher "Andrea Mazzurana"
 #define MyAppExeName "IpStreamMonitor.exe"
 
@@ -14,8 +14,8 @@ AppName={#MyAppName}
 AppVersion={#MyAppVersion}
 AppPublisher={#MyAppPublisher}
 AppPublisherURL=https://github.com/Jasssbo
-AppSupportURL=https://github.com/Jasssbo/IpAudioStreamMonitor/issues
-AppUpdatesURL=https://github.com/Jasssbo/IpAudioStreamMonitor/releases
+AppSupportURL=https://github.com/Jasssbo/AudioStreamMETER/issues
+AppUpdatesURL=https://github.com/Jasssbo/AudioStreamMETER/releases
 
 ; L'utente sceglie dove installare durante il wizard
 DefaultDirName={autopf}\{#MyAppName}
@@ -81,45 +81,6 @@ Filename: "taskkill"; Parameters: "/F /IM {#MyAppExeName}"; Flags: runhidden now
 Type: filesandordirs; Name: "{app}\logs"
 
 [Code]
-var
-  StartMenuPage: TInputQueryWizardPage;
-
-procedure InitializeWizard();
-begin
-  StartMenuPage := CreateInputQueryPage(
-    wpSelectTasks,
-    'Collegamento Menu Start',
-    'Personalizza il nome del collegamento nel Menu Start',
-    ''
-  );
-  StartMenuPage.Add('Nome cartella nel Menu Start:', False);
-  StartMenuPage.Values[0] := ExpandConstant('{#MyAppName}');
-end;
-
-procedure CurStepChanged(CurStep: TSetupStep);
-var
-  StartMenuFolder: string;
-  IconPath: string;
-begin
-  if CurStep = ssPostInstall then
-  begin
-    if WizardIsTaskSelected('startmenuicon') then  // ← fix warning 2
-    begin
-      StartMenuFolder := StartMenuPage.Values[0];
-      if StartMenuFolder = '' then
-        StartMenuFolder := ExpandConstant('{#MyAppName}');
-      IconPath := ExpandConstant('{commonprograms}\') + StartMenuFolder;
-      ForceDirectories(IconPath);
-      CreateShellLink(
-        IconPath + '\' + ExpandConstant('{#MyAppName}') + '.lnk',
-        ExpandConstant('{#MyAppName}'),
-        ExpandConstant('{app}\{#MyAppExeName}'),
-        '', '', '', 0, SW_SHOWNORMAL
-      );
-    end;
-  end;
-end;
-
 function NeedsAddPath(Param: string): boolean;
 var
   OrigPath: string;
