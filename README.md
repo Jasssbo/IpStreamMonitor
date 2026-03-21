@@ -46,7 +46,7 @@ IpStreamMonitor/
 The easiest way to install IP Stream Monitor on Windows.
 
 1. Download the installer from Releases:
-[IPStreamMonitor_installer.exe](https://github.com/Jasssbo/IpStreamMonitor/releases/tag/v1.0.0)
+[IPStreamMonitor_installer.exe](https://github.com/Jasssbo/IpStreamMonitor/releases/)
 
 2. Run the installer and follow the setup wizard
 
