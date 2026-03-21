@@ -1,7 +1,7 @@
 # AudioStreamMETER
 
 Real-time stereo audio monitor for HTTP streams (MP3/AAC), designed for Radio and WebRadio broadcasting.
-Monitor up to 16 audio streams simultaneously with real-time waveform display, LUFS and True Peak metering according to ITU-R BS.1770-4 algorithm and EBU R128-2023 standard. Features include: audio playback, configurable ffmpeg decoding settings, UI display options, selectable metering standards (EBU R128, YouTube, Spotify, AES71...) and preset management via CSV files for public AOIP streams with associated names.
+Monitor up to 16 audio streams simultaneously with real-time waveform display + L/R spectrum analysis, LUFS and True Peak metering according to ITU-R BS.1770-4 algorithm and EBU R128-2023 standard. Features include: audio playback, configurable ffmpeg decoding settings, UI display options, selectable metering standards (EBU R128, YouTube, Spotify, AES71...) and preset management via CSV files for public AOIP streams with associated names.
 
 ![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)
 ![Platform](https://img.shields.io/badge/Platform-Windows-lightgrey.svg)
