@@ -1,11 +1,11 @@
-#define MyAppName "Ip-StreamMonitor"
+#define MyAppName "AudioStreamMETER"
 #define MyAppVersion "2.0.3"
 #define MyAppPublisher "Andrea Mazzurana"
-#define MyAppExeName "IpStreamMonitor.exe"
+#define MyAppExeName "AudioStreamMETER.exe"
 
 ; {#SourcePath} è automatico — Inno Setup lo risolve da solo
 ; basta che dist\ e ffmpeg_bin\ siano nella stessa cartella del .iss
-#define SourceApp SourcePath + "dist\StreamMonitor"
+#define SourceApp SourcePath + "dist\AudioStreamMETER"
 #define SourceFfmpeg SourcePath + "ffmpeg_bin"
 
 [Setup]
@@ -30,7 +30,7 @@ MinVersion=10.0
 
 ; Output nella cartella Output\ accanto al .iss — relativo e automatico
 OutputDir={#SourcePath}Output
-OutputBaseFilename=IpStreamMonitor_installer
+OutputBaseFilename=AudioStreamMETER_installer
 
 ; License agreement - user must accept before installing
 LicenseFile={#SourcePath}\LICENSE
@@ -38,7 +38,7 @@ LicenseFile={#SourcePath}\LICENSE
 Compression=lzma
 SolidCompression=no
 WizardStyle=modern
-AppMutex=IPStreamMonitorMutex
+AppMutex=AudioStreamMETERMutex
 UninstallDisplaySize=150000000
 
 [Languages]

@@ -11,7 +11,7 @@ System requirements:
     - ffmpeg installed and in PATH
 
 Usage:
-    python stream_monitor.py
+    python AudioStreamMETER.py
     Then add stream URLs from the GUI.
 """
 
@@ -1360,7 +1360,7 @@ class MainWindow(QMainWindow):
         left_col = QVBoxLayout()
         left_col.setSpacing(1)
 
-        title = QLabel("◈ STREAM MONITOR")
+        title = QLabel("◈ AudioStreamMETER")
         title.setStyleSheet(f"color: {ACCENT}; font-size: 18px; font-family: 'Courier New'; font-weight: bold; letter-spacing: 2px;")
 
         # Prima riga indicatori: buffer
@@ -1979,7 +1979,7 @@ def preboot_log():
 
 def main():
     app = QApplication(sys.argv)
-    app.setApplicationName("Stream Monitor")
+    app.setApplicationName("AudioStreamMETER")
 
     # Dark palette globale
     palette = QPalette()

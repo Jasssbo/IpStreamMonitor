@@ -1,8 +1,8 @@
-# stream_monitor.spec
+# AudioStreamMETER.spec
 block_cipher = None
 
 a = Analysis(
-    ['stream_monitor_windows.py'],
+    ['AudioStreamMETER_windows.py'],
     pathex=[],
     binaries=[],
     datas=[
@@ -26,7 +26,7 @@ pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
 exe = EXE(
     pyz, a.scripts, [],
     exclude_binaries=True,
-    name='IpStreamMonitor',
+    name='AudioStreamMETER',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -39,5 +39,5 @@ coll = COLLECT(
     exe, a.binaries, a.zipfiles, a.datas,
     strip=False,
     upx=False,
-    name='StreamMonitor'
+    name='AudioStreamMETER'
 )

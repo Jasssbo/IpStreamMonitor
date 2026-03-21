@@ -1,8 +1,8 @@
-# IpStreamMonitor
+# AudioStreamMETER
 
 Monitor Audio Stereo in tempo reale per stream HTTP (MP3/AAC), pensato per Radio e WebRadio.
-Visualizza fino a 16 flussi audio contemporaneamente con waveform in real-time, misurazione LUFS e TruePeak secondo lo standard algoritmico ITU-R BS 1770-5 e
-lo standard audio EBU R 128-2023, possibilità di: ascoltare il flusso audio, regolare le impostazioni di decodifica ffmpeg, display UI, standard di misurazione utilizzato (EBU R128, Youtube, Spotify, AES 71...) e di creare preset richiamabili tramite file "csv" di Stream AOIP pubblici con Nome Associato.
+Visualizza fino a 16 flussi audio contemporaneamente con waveform e analizzatore di spettro in real-time, misurazione LUFS e TruePeak secondo lo standard algoritmico ITU-R BS 1770-5 e
+lo standard audio EBU R 128-2023, possibilità di: ascoltare il flusso audio, regolare le impostazioni di decodifica ffmpeg, display UI, standard di misurazione utilizzato (EBU R128, Youtube, Spotify, AES 71...) e di creare preset richiamabili tramite file "csv" di Stream Audio pubblici con Nome Associato.
 
 ![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)
 ![Platform](https://img.shields.io/badge/Platform-Windows-lightgrey.svg)
@@ -22,17 +22,17 @@ lo standard audio EBU R 128-2023, possibilità di: ascoltare il flusso audio, re
 ## Struttura del progetto
 
 ```text
-IpStreamMonitor/
+AudioStreamMETER/
 ├── src/
-│   ├── stream_monitor.py     # Versione cross-platform
+│   ├── AudioStreamMETER.py     # Versione cross-platform
 │   ├── requirements.txt      # Dipendenze Python
 │   ├── metering_standards/standards.json   # File per richiamare gli standard di misurazione
 │   └── presets/Default.csv   # File per richiamare set di IP + Nome corrisponente con un singolo click
 ├── Windows/
-│   ├── stream_monitor_windows.py   # Versione Windows
+│   ├── AudioStreamMETER_windows.py   # Versione Windows
 │   ├── metering_standards/standards.json   # File per richiamare gli standard di misurazione
 │   ├── presets/Default.csv   # File per richiamare set di IP + Nome corrisponente con un singolo click
-│   ├── stream_monitor_windows.spec # Config PyInstaller
+│   ├── AudioStreamMETER_windows.spec # Config PyInstaller
 │   ├── installer.iss               # Script Inno Setup
 │   └── ffmpeg_bin/                 # Binari FFmpeg per packaging con InnoSetup
 └── README.md
@@ -44,10 +44,10 @@ IpStreamMonitor/
 
 ### Opzione 1: Classico Installer Windows 10/11
 
-Il modo più semplice per installare IP Stream Monitor su Windows.
+Il modo più semplice per installare AudioStreamMETER su Windows.
 
 1. Scarica l'installer da... :
-[IPStreamMonitor_installer.exe](https://github.com/Jasssbo/IpStreamMonitor/releases/tag/v1.0.0)
+[AudioStreamMETER_installer.exe](https://github.com/Jasssbo/AudioStreamMETER/releases/)
 
 2. Esegui l'installer e segui la procedura guidata
 
@@ -56,7 +56,7 @@ Il modo più semplice per installare IP Stream Monitor su Windows.
    - Collegamento sul Desktop (opzionale)
    - Collegamento nel Menu Start (opzionale)
    - Disinstallazione automatica tramite "uninstall.exe" nella cartella:
-   C:\Program Files (x86)\IpStreamMonitor
+   C:\Program Files (x86)\AudioStreamMETER
 
 > **Nota**: L'installer richiede privilegi di amministratore e Windows 10 o superiore (64-bit).
 
@@ -76,14 +76,14 @@ Per chi preferisce compilare autonomamente l'eseguibile.
 ##### 1. Clona o scarica il repository
 
 ```powershell o bash
-git clone https://github.com/Jasssbo/IpStreamMonitor.git
+git clone https://github.com/Jasssbo/AudioStreamMETER.git
 ```
 
 ##### 2. Crea un virtual environment nella directory della repo
 
 ```powershell o bash
 # Posizionati da terminale nella cartella della Repo e Crea il venv
-cd IpStreamMonitor && python -m venv .venv
+cd AudioStreamMETER && python -m venv .venv
 
 # Attiva il venv
 .\.venv\Scripts\Activate.ps1   # su Windows PowerShell
@@ -136,8 +136,8 @@ pip install pyinstaller
 Copia `ffmpeg.exe` e `ffplay.exe` nella cartella ffmpeg_bin:
 
 ```text
-Windows/dist/StreamMonitor/
-├── IpStreamMonitor.exe
+Windows/dist/AudioStreamMETER/
+├── AudioStreamMETER.exe
 ├── ffmpeg.exe
 ├── ffplay.exe
 └── _internal/
@@ -151,13 +151,13 @@ Windows/dist/StreamMonitor/
 
 ```powershell o bash
 cd Windows
-pyinstaller stream_monitor_windows.spec
+pyinstaller AudioStreamMETER_windows.spec
 ```
 
 L'eseguibile verrà creato in:
 
 ```text
-Windows/dist/StreamMonitor/IpStreamMonitor.exe
+Windows/dist/AudioStreamMETER/AudioStreamMETER.exe
 ```
 
 ### Creazione dell'installer (opzionale)
@@ -170,7 +170,7 @@ Se vuoi creare il tuo installer personalizzato:
 
    ```text
    Windows/
-   ├── dist/StreamMonitor/    ← output di PyInstaller
+   ├── dist/AudioStreamMETER/    ← output di PyInstaller
    ├── ffmpeg_bin/            ← ffmpeg.exe e ffplay.exe
    └── installer.iss
    ```
