@@ -33,6 +33,80 @@ from PyQt6.QtGui import QColor, QPalette, QFont
 # ── Rilevamento OS ──────────────────────────────────────────────────────────
 IS_WINDOWS = platform.system() == "Windows"
 
+# ── Windows Job Object (processo figlio visibile come albero nel Task Manager) ──
+# Tutti i processi ffmpeg/ffplay vengono assegnati a questo Job Object:
+#   - appaiono come figli di AudioStreamMETER.exe nella vista albero
+#   - vengono killati automaticamente dal kernel se l'app padre crasha
+_win_job = None
+
+if IS_WINDOWS:
+    try:
+        import ctypes.wintypes as _wt
+
+        _KERNEL32 = ctypes.windll.kernel32
+
+        # Costanti Win32
+        _JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE = 0x00002000
+        _JobObjectExtendedLimitInformation   = 9
+
+        class _JOBOBJECT_BASIC_LIMIT_INFORMATION(ctypes.Structure):
+            _fields_ = [
+                ("PerProcessUserTimeLimit", ctypes.c_int64),
+                ("PerJobUserTimeLimit",     ctypes.c_int64),
+                ("LimitFlags",             _wt.DWORD),
+                ("MinimumWorkingSetSize",   ctypes.c_size_t),
+                ("MaximumWorkingSetSize",   ctypes.c_size_t),
+                ("ActiveProcessLimit",      _wt.DWORD),
+                ("Affinity",               ctypes.c_size_t),
+                ("PriorityClass",          _wt.DWORD),
+                ("SchedulingClass",        _wt.DWORD),
+            ]
+
+        class _IO_COUNTERS(ctypes.Structure):
+            _fields_ = [(f, ctypes.c_uint64) for f in (
+                "ReadOperationCount","WriteOperationCount","OtherOperationCount",
+                "ReadTransferCount","WriteTransferCount","OtherTransferCount")]
+
+        class _JOBOBJECT_EXTENDED_LIMIT_INFORMATION(ctypes.Structure):
+            _fields_ = [
+                ("BasicLimitInformation", _JOBOBJECT_BASIC_LIMIT_INFORMATION),
+                ("IoInfo",                _IO_COUNTERS),
+                ("ProcessMemoryLimit",    ctypes.c_size_t),
+                ("JobMemoryLimit",        ctypes.c_size_t),
+                ("PeakProcessMemoryUsed", ctypes.c_size_t),
+                ("PeakJobMemoryUsed",     ctypes.c_size_t),
+            ]
+
+        _job_handle = _KERNEL32.CreateJobObjectW(None, None)
+        if _job_handle:
+            _info = _JOBOBJECT_EXTENDED_LIMIT_INFORMATION()
+            _info.BasicLimitInformation.LimitFlags = _JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+            _KERNEL32.SetInformationJobObject(
+                _job_handle,
+                _JobObjectExtendedLimitInformation,
+                ctypes.byref(_info),
+                ctypes.sizeof(_info)
+            )
+            _win_job = _job_handle
+
+    except Exception as _e:
+        print(f"[Job Object] Non disponibile: {_e}")
+        _win_job = None
+
+
+def _assign_to_job(proc: "subprocess.Popen"):
+    """Assegna un processo figlio al Job Object dell'app (solo Windows)."""
+    if not IS_WINDOWS or _win_job is None:
+        return
+    try:
+        ph = ctypes.windll.kernel32.OpenProcess(0x1F0FFF, False, proc.pid)
+        if ph:
+            ctypes.windll.kernel32.AssignProcessToJobObject(_win_job, ph)
+            ctypes.windll.kernel32.CloseHandle(ph)
+    except Exception:
+        pass
+
+
 # ── Costanti ────────────────────────────────────────────────────────────────
 # Riferimenti standard:
 #   - ITU-R BS.1770-4: LUFS metering (finestre 400ms momentary, 3s short-term)
@@ -252,6 +326,11 @@ class StreamWorker(QObject):
     def stop(self):
         self._alive = False
         self._stop_event.set()
+        # Killa subito il proc se esiste, per sbloccare stdout.read() nel thread
+        proc = getattr(self, '_proc', None)
+        if proc and proc.poll() is None:
+            try: proc.kill()
+            except Exception: pass
 
     def _safe_emit(self, signal, *args):
         if not self._alive: return
@@ -259,6 +338,7 @@ class StreamWorker(QObject):
         except (RuntimeError, AttributeError): pass
 
     def _run(self):
+        self._proc = None  # traccia il processo per stop() esterno
         self._safe_emit(self.status_signal, "connecting")
         cmd = ["ffmpeg", "-fflags", "+nobuffer+flush_packets", "-flags", "low_delay",
                "-probesize", str(CONFIG.probesize), "-analyzeduration", str(CONFIG.analyzeduration),
@@ -271,6 +351,8 @@ class StreamWorker(QObject):
         proc = None
         try:
             proc = subprocess.Popen(cmd, **popen_kw)
+            self._proc = proc
+            _assign_to_job(proc)
             self._safe_emit(self.status_signal, "live")
             while not self._stop_event.is_set():
                 raw = proc.stdout.read(CONFIG.chunk_bytes)
@@ -280,11 +362,16 @@ class StreamWorker(QObject):
         except FileNotFoundError:
             self._safe_emit(self.error_signal, "ffmpeg non trovato nel PATH")
         except Exception as e:
-            self._safe_emit(self.error_signal, str(e))
+            if self._alive:  # ignora errori dovuti al kill volontario
+                self._safe_emit(self.error_signal, str(e))
         finally:
+            self._proc = None
             if proc:
-                try: proc.kill(); proc.wait()
-                except: pass
+                try:
+                    if proc.poll() is None: proc.kill()
+                    proc.stdout.close()
+                    proc.wait(timeout=3)
+                except Exception: pass
             if self._alive: self._safe_emit(self.status_signal, "stopped")
 
 
@@ -328,13 +415,20 @@ class AudioPlayer(QObject):
 
     def stop(self):
         self._stop_event.set()
+        # Killa subito il processo per sbloccare il thread in attesa
         with self._lock: proc = self._proc
         if proc:
             try:
                 if proc.poll() is None: proc.kill()
-            except: pass
+            except Exception: pass
         if self._thread and self._thread.is_alive():
             self._thread.join(timeout=4.0)
+            if self._thread.is_alive():
+                # Thread ancora vivo dopo timeout: forza kill finale tramite registro globale
+                with self._lock: proc = self._proc
+                if proc:
+                    try: proc.kill(); proc.wait(timeout=1)
+                    except Exception: pass
             self._thread = None
 
     def _run(self):
@@ -349,6 +443,7 @@ class AudioPlayer(QObject):
         proc = None
         try:
             proc = subprocess.Popen(cmd, **popen_kw)
+            _assign_to_job(proc)
             _register_proc(proc)
             with self._lock: self._proc = proc
             if self._stop_event.is_set():
@@ -358,10 +453,14 @@ class AudioPlayer(QObject):
                     if proc.poll() is not None: break
                     time.sleep(0.1)
                 if proc.poll() is None: proc.kill()
-            proc.wait()
-        except: pass
+        except Exception: pass
         finally:
-            if proc: _unregister_proc(proc)
+            if proc:
+                try: proc.wait(timeout=3)
+                except Exception:
+                    try: proc.kill(); proc.wait(timeout=1)
+                    except Exception: pass
+                _unregister_proc(proc)
             with self._lock: self._proc = None
             try: self.stopped.emit()
             except RuntimeError: pass
@@ -1073,7 +1172,7 @@ class StreamCard(QFrame):
 
     def stop_stream(self):
         if self._worker:
-            self._worker.stop()
+            self._worker.stop()   # killa subito ffmpeg e setta stop_event
             # Disconnetti tutti i segnali prima che Qt distrugga l'oggetto
             try:
                 self._worker.data_ready.disconnect()
@@ -1083,7 +1182,10 @@ class StreamCard(QFrame):
                 pass  # già disconnessi
         if self._qthread:
             self._qthread.quit()
-            self._qthread.wait(2000)
+            if not self._qthread.wait(3000):
+                # QThread non terminato: termina forzatamente
+                self._qthread.terminate()
+                self._qthread.wait(1000)
 
     # ── Slots ─────────────────────────────────────────────────────────────────
     def _on_data(self, samples: np.ndarray, emit_time: float):

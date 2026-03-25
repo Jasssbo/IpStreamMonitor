@@ -67,11 +67,6 @@ Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: startmen
 Name: "{group}\Disinstalla {#MyAppName}"; Filename: "{uninstallexe}"; Tasks: startmenuicon
 Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
 
-[Registry]
-Root: HKLM; Subkey: "SYSTEM\CurrentControlSet\Control\Session Manager\Environment"; ValueType: expandsz; ValueName: "Path"; ValueData: "{olddata};{app}"; Check: NeedsAddPath('{app}'); Flags: uninsdeletevalue
-Root: HKLM; Subkey: "Software\{#MyAppPublisher}\{#MyAppName}"; ValueType: string; ValueName: "InstallPath"; ValueData: "{app}"; Flags: uninsdeletekey
-Root: HKLM; Subkey: "Software\{#MyAppPublisher}\{#MyAppName}"; ValueType: string; ValueName: "Version"; ValueData: "{#MyAppVersion}"; Flags: uninsdeletekey
-
 [Run]
 Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#MyAppName}}"; Flags: nowait postinstall skipifsilent
 
@@ -81,21 +76,6 @@ Filename: "taskkill"; Parameters: "/F /IM {#MyAppExeName}"; Flags: runhidden now
 Type: filesandordirs; Name: "{app}\logs"
 
 [Code]
-function NeedsAddPath(Param: string): boolean;
-var
-  OrigPath: string;
-begin
-  if not RegQueryStringValue(
-    HKLM,
-    'SYSTEM\CurrentControlSet\Control\Session Manager\Environment',
-    'Path', OrigPath)
-  then begin
-    Result := True;
-    exit;
-  end;
-  Result := Pos(';' + Param + ';', ';' + OrigPath + ';') = 0;
-end;
-
 function InitializeSetup(): Boolean;
 begin
   Result := True;
