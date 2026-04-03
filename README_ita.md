@@ -27,13 +27,15 @@ AudioStreamMETER/
 │   ├── AudioStreamMETER.py     # Versione cross-platform
 │   ├── requirements.txt      # Dipendenze Python
 │   ├── metering_standards/standards.json   # File per richiamare gli standard di misurazione
-│   └── presets/Default.csv   # File per richiamare set di IP + Nome corrisponente con un singolo click
+│   └── presets/Default.csv   # File per richiamare set di IP + Nome corrisponente + email supporto tecnico
 ├── Windows/
 │   ├── AudioStreamMETER_windows.py   # Versione Windows
-│   ├── metering_standards/standards.json   # File per richiamare gli standard di misurazione
-│   ├── presets/Default.csv   # File per richiamare set di IP + Nome corrisponente con un singolo click
 │   ├── AudioStreamMETER_windows.spec # Config PyInstaller
 │   ├── installer.iss               # Script Inno Setup
+│   ├── customization/
+│   │    ├── metering_standards/standards.json   # File per richiamare gli standard di misurazione
+│   │    ├── presets/Default.csv   # File per richiamare set di IP + Nome corrisponente + email supporto tecnico
+│   │    └── email_template.json  # File per personalizzare il Template della Email da inviare al supporto tecnico dello stream corrispondente
 │   └── ffmpeg_bin/                 # Binari FFmpeg per packaging con InnoSetup
 └── README.md
 ```

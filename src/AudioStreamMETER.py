@@ -1,5 +1,5 @@
 """
-Stream Audio Monitor
+AudioStreamMETER
 ====================
 Monitor up to 16 stereo HTTP audio streams (MP3/AAC) in parallel.
 Displays real-time waveform and measures LUFS (short-term ~3s).
@@ -15,7 +15,7 @@ Usage:
     Then add stream URLs from the GUI.
 """
 
-import sys, threading, subprocess, re, csv, json, time, math, atexit, platform, shutil, ctypes
+import sys, threading, subprocess, re, csv, json, time, math, atexit, platform, shutil, ctypes, webbrowser
 from pathlib import Path
 from collections import deque
 from dataclasses import dataclass
@@ -26,12 +26,96 @@ import pyqtgraph as pg
 from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QGridLayout, QVBoxLayout,
     QHBoxLayout, QPushButton, QLineEdit, QLabel, QFrame, QScrollArea, QInputDialog,
     QMessageBox, QProgressBar, QTextEdit, QComboBox, QFileDialog, QDialog, QSlider,
-    QGroupBox, QSpinBox)
+    QGroupBox, QSpinBox, QSizePolicy)
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QObject, QThread, QAbstractNativeEventFilter
 from PyQt6.QtGui import QColor, QPalette, QFont
 
 # ── Rilevamento OS ──────────────────────────────────────────────────────────
 IS_WINDOWS = platform.system() == "Windows"
+
+# ── Windows Job Object (processo figlio visibile come albero nel Task Manager) ──
+# Tutti i processi ffmpeg/ffplay vengono assegnati a questo Job Object:
+#   - appaiono come figli di AudioStreamMETER.exe nella vista albero
+#   - vengono killati automaticamente dal kernel se l'app padre crasha
+_win_job = None
+
+if IS_WINDOWS:
+    try:
+        import ctypes.wintypes as _wt
+
+        _KERNEL32 = ctypes.windll.kernel32
+
+        # Costanti Win32
+        _JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE = 0x00002000
+        _JobObjectExtendedLimitInformation   = 9
+
+        class _JOBOBJECT_BASIC_LIMIT_INFORMATION(ctypes.Structure):
+            _fields_ = [
+                ("PerProcessUserTimeLimit", ctypes.c_int64),
+                ("PerJobUserTimeLimit",     ctypes.c_int64),
+                ("LimitFlags",             _wt.DWORD),
+                ("MinimumWorkingSetSize",   ctypes.c_size_t),
+                ("MaximumWorkingSetSize",   ctypes.c_size_t),
+                ("ActiveProcessLimit",      _wt.DWORD),
+                ("Affinity",               ctypes.c_size_t),
+                ("PriorityClass",          _wt.DWORD),
+                ("SchedulingClass",        _wt.DWORD),
+            ]
+
+        class _IO_COUNTERS(ctypes.Structure):
+            _fields_ = [(f, ctypes.c_uint64) for f in (
+                "ReadOperationCount","WriteOperationCount","OtherOperationCount",
+                "ReadTransferCount","WriteTransferCount","OtherTransferCount")]
+
+        class _JOBOBJECT_EXTENDED_LIMIT_INFORMATION(ctypes.Structure):
+            _fields_ = [
+                ("BasicLimitInformation", _JOBOBJECT_BASIC_LIMIT_INFORMATION),
+                ("IoInfo",                _IO_COUNTERS),
+                ("ProcessMemoryLimit",    ctypes.c_size_t),
+                ("JobMemoryLimit",        ctypes.c_size_t),
+                ("PeakProcessMemoryUsed", ctypes.c_size_t),
+                ("PeakJobMemoryUsed",     ctypes.c_size_t),
+            ]
+
+        _job_handle = _KERNEL32.CreateJobObjectW(None, None)
+        if _job_handle:
+            _info = _JOBOBJECT_EXTENDED_LIMIT_INFORMATION()
+            _info.BasicLimitInformation.LimitFlags = _JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+            _KERNEL32.SetInformationJobObject(
+                _job_handle,
+                _JobObjectExtendedLimitInformation,
+                ctypes.byref(_info),
+                ctypes.sizeof(_info)
+            )
+            _win_job = _job_handle
+
+    except Exception as _e:
+        print(f"[Job Object] Non disponibile: {_e}")
+        _win_job = None
+
+
+def _assign_to_job(proc: "subprocess.Popen"):
+    """Assegna un processo figlio al Job Object dell'app (solo Windows)."""
+    if not IS_WINDOWS or _win_job is None:
+        return
+    try:
+        ph = ctypes.windll.kernel32.OpenProcess(0x1F0FFF, False, proc.pid)
+        if ph:
+            ctypes.windll.kernel32.AssignProcessToJobObject(_win_job, ph)
+            ctypes.windll.kernel32.CloseHandle(ph)
+    except Exception:
+        pass
+
+
+# ── Base Directory Detection ────────────────────────────────────────────────
+# When frozen (PyInstaller exe), use the exe's directory so that customization/
+# folder can be placed alongside the exe (not inside _internal).
+# This makes presets, metering_standards, and email_template accessible to users.
+if getattr(sys, 'frozen', False):
+    _BASE_DIR = Path(sys.executable).parent
+else:
+    _BASE_DIR = Path(__file__).parent
+
 
 # ── Costanti ────────────────────────────────────────────────────────────────
 # Riferimenti standard:
@@ -61,6 +145,10 @@ class StreamConfig:
         self.refresh_ms       = 50       # ms tra refresh UI (20 FPS)
         self.waveform_smooth  = 4        # decimazione waveform: 1=massimo dettaglio, 16=molto smooth
 
+        # ── Email template ──
+        self.email_subject    = "[AudioStreamMETER] Issue with stream: {stream_name}"
+        self.email_body       = "Stream URL: {stream_url}\nStream Name: {stream_name}\n\nIssue description:\n"
+
     @property
     def chunk_bytes(self) -> int:
         return self.chunk_samples * 4    # stereo s16le (2 canali × 2 byte)
@@ -80,6 +168,43 @@ class StreamConfig:
 
 # Istanza globale
 CONFIG = StreamConfig()
+
+
+# ── Cartella Customization (raccoglie preset, standard, template) ───────────
+_CUSTOMIZATION_DIR = _BASE_DIR / "customization"
+
+
+# ── Persistenza Email Template ─────────────────────────────────────────
+_EMAIL_TEMPLATE_FILE = _CUSTOMIZATION_DIR / "email_template.json"
+
+def _load_email_template():
+    """Load email template from JSON file if it exists."""
+    try:
+        if _EMAIL_TEMPLATE_FILE.exists():
+            with open(_EMAIL_TEMPLATE_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            CONFIG.email_subject = data.get("subject", CONFIG.email_subject)
+            CONFIG.email_body = data.get("body", CONFIG.email_body)
+            print(f"[Email Template] Loaded from {_EMAIL_TEMPLATE_FILE}")
+    except Exception as e:
+        print(f"[Email Template] Could not load: {e}")
+
+def _save_email_template():
+    """Save email template to JSON file."""
+    try:
+        _CUSTOMIZATION_DIR.mkdir(parents=True, exist_ok=True)
+        data = {
+            "subject": CONFIG.email_subject,
+            "body": CONFIG.email_body
+        }
+        with open(_EMAIL_TEMPLATE_FILE, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)
+        print(f"[Email Template] Saved to {_EMAIL_TEMPLATE_FILE}")
+    except Exception as e:
+        print(f"[Email Template] Could not save: {e}")
+
+# Carica template salvato all'avvio
+_load_email_template()
 
 
 # ── Standard di Metering (colorazione LUFS/TP) ──────────────────────────────────
@@ -123,7 +248,7 @@ class MeteringStandard:
 
 
 # ── Caricamento Standard di Metering da JSON ────────────────────────────────
-_METERING_STANDARDS_DIR = Path(__file__).parent / "metering_standards"
+_METERING_STANDARDS_DIR = _CUSTOMIZATION_DIR / "metering_standards"
 _METERING_STANDARDS_FILE = _METERING_STANDARDS_DIR / "standards.json"
 
 def _load_metering_standards() -> Dict[str, MeteringStandard]:
@@ -252,6 +377,11 @@ class StreamWorker(QObject):
     def stop(self):
         self._alive = False
         self._stop_event.set()
+        # Killa subito il proc se esiste, per sbloccare stdout.read() nel thread
+        proc = getattr(self, '_proc', None)
+        if proc and proc.poll() is None:
+            try: proc.kill()
+            except Exception: pass
 
     def _safe_emit(self, signal, *args):
         if not self._alive: return
@@ -259,6 +389,7 @@ class StreamWorker(QObject):
         except (RuntimeError, AttributeError): pass
 
     def _run(self):
+        self._proc = None  # traccia il processo per stop() esterno
         self._safe_emit(self.status_signal, "connecting")
         cmd = ["ffmpeg", "-fflags", "+nobuffer+flush_packets", "-flags", "low_delay",
                "-probesize", str(CONFIG.probesize), "-analyzeduration", str(CONFIG.analyzeduration),
@@ -271,6 +402,8 @@ class StreamWorker(QObject):
         proc = None
         try:
             proc = subprocess.Popen(cmd, **popen_kw)
+            self._proc = proc
+            _assign_to_job(proc)
             self._safe_emit(self.status_signal, "live")
             while not self._stop_event.is_set():
                 raw = proc.stdout.read(CONFIG.chunk_bytes)
@@ -280,11 +413,16 @@ class StreamWorker(QObject):
         except FileNotFoundError:
             self._safe_emit(self.error_signal, "ffmpeg non trovato nel PATH")
         except Exception as e:
-            self._safe_emit(self.error_signal, str(e))
+            if self._alive:  # ignora errori dovuti al kill volontario
+                self._safe_emit(self.error_signal, str(e))
         finally:
+            self._proc = None
             if proc:
-                try: proc.kill(); proc.wait()
-                except: pass
+                try:
+                    if proc.poll() is None: proc.kill()
+                    proc.stdout.close()
+                    proc.wait(timeout=3)
+                except Exception: pass
             if self._alive: self._safe_emit(self.status_signal, "stopped")
 
 
@@ -328,13 +466,20 @@ class AudioPlayer(QObject):
 
     def stop(self):
         self._stop_event.set()
+        # Killa subito il processo per sbloccare il thread in attesa
         with self._lock: proc = self._proc
         if proc:
             try:
                 if proc.poll() is None: proc.kill()
-            except: pass
+            except Exception: pass
         if self._thread and self._thread.is_alive():
             self._thread.join(timeout=4.0)
+            if self._thread.is_alive():
+                # Thread ancora vivo dopo timeout: forza kill finale tramite registro globale
+                with self._lock: proc = self._proc
+                if proc:
+                    try: proc.kill(); proc.wait(timeout=1)
+                    except Exception: pass
             self._thread = None
 
     def _run(self):
@@ -349,6 +494,7 @@ class AudioPlayer(QObject):
         proc = None
         try:
             proc = subprocess.Popen(cmd, **popen_kw)
+            _assign_to_job(proc)
             _register_proc(proc)
             with self._lock: self._proc = proc
             if self._stop_event.is_set():
@@ -358,10 +504,14 @@ class AudioPlayer(QObject):
                     if proc.poll() is not None: break
                     time.sleep(0.1)
                 if proc.poll() is None: proc.kill()
-            proc.wait()
-        except: pass
+        except Exception: pass
         finally:
-            if proc: _unregister_proc(proc)
+            if proc:
+                try: proc.wait(timeout=3)
+                except Exception:
+                    try: proc.kill(); proc.wait(timeout=1)
+                    except Exception: pass
+                _unregister_proc(proc)
             with self._lock: self._proc = None
             try: self.stopped.emit()
             except RuntimeError: pass
@@ -380,7 +530,7 @@ TOOLTIP_STYLE = """
 """
 
 
-# ── Dialog Opzioni ──────────────────────────────────────────────────────
+# ── Dialog Options ──────────────────────────────────────────────────────
 class OptionsDialog(QDialog):
     """Dialog per configurare liberamente tutti i parametri di streaming e display."""
 
@@ -414,8 +564,9 @@ class OptionsDialog(QDialog):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("⚙ Opzioni Stream")
-        self.setFixedSize(820, 800)
+        self.setWindowTitle("⚙ Streams Configurations")
+        self.setMinimumSize(820, 600)
+        self.resize(820, 800)
         self.setStyleSheet(f"""
             QDialog {{ background: {BG_DARK}; color: {TEXT}; }}
             QGroupBox {{
@@ -527,17 +678,61 @@ class OptionsDialog(QDialog):
         layout.setSpacing(12)
         layout.setContentsMargins(20, 16, 20, 16)
 
-        # ── Titolo ───────────────────────────────────────────────────────
-        title = QLabel("⚙  IMPOSTAZIONI STREAM")
+        # ── Header row: Author + Title ─────────────────────────────────────
+        header_row = QHBoxLayout()
+        header_row.setSpacing(10)
+        
+        author_lbl = QLabel("Made by: Andrea Mazzurana")
+        author_lbl.setStyleSheet(f"color: {TEXT_DIM}; font-size: 12px; font-family: 'Courier New'; font-style: italic;")
+        author_lbl.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        header_row.addWidget(author_lbl)
+        
+        header_row.addStretch()
+        
+        title = QLabel("⚙ STREAMs CONFIGURATION")
         title.setStyleSheet(
             f"color: {ACCENT}; font-size: 20px; font-weight: bold; font-family: 'Courier New';")
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(title)
+        header_row.addWidget(title)
+        
+        header_row.addStretch()
+        
+        # Spacer to balance the author label width
+        spacer_lbl = QLabel()
+        spacer_lbl.setFixedWidth(150)
+        header_row.addWidget(spacer_lbl)
+        
+        layout.addLayout(header_row)
 
         note = QLabel("Le modifiche si applicano ai prossimi stream aggiunti.")
         note.setStyleSheet(f"color: {TEXT_DIM}; font-size: 14px; font-family: 'Courier New';")
         note.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(note)
+
+        # ── Scroll Area per contenuto ────────────────────────────────────
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setStyleSheet(f"""
+            QScrollArea {{ background: transparent; border: none; }}
+            QScrollBar:vertical {{
+                background: {BG_CARD}; width: 10px; border-radius: 5px;
+            }}
+            QScrollBar::handle:vertical {{
+                background: {GRAY}; border-radius: 5px; min-height: 30px;
+            }}
+            QScrollBar::handle:vertical:hover {{
+                background: {ACCENT};
+            }}
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{
+                height: 0px;
+            }}
+        """)
+        
+        scroll_content = QWidget()
+        scroll_layout = QVBoxLayout(scroll_content)
+        scroll_layout.setSpacing(12)
+        scroll_layout.setContentsMargins(0, 0, 10, 0)
 
         # ════════════════════════════════════════════════════════════════
         # Gruppo: Decodifica ffmpeg
@@ -602,7 +797,7 @@ class OptionsDialog(QDialog):
         self._analyze_slider.valueChanged.connect(
             lambda v: self._analyze_val.setText("ms"))
 
-        layout.addWidget(grp_ff)
+        scroll_layout.addWidget(grp_ff)
 
         # ════════════════════════════════════════════════════════════════
         # Gruppo: Display
@@ -634,7 +829,7 @@ class OptionsDialog(QDialog):
             lambda v: self._smooth_val.setText(
                 f"{'Max detail' if v==1 else ('Max smooth' if v==16 else '×')}"))
 
-        layout.addWidget(grp_disp)
+        scroll_layout.addWidget(grp_disp)
 
         # ════════════════════════════════════════════════════════════════
         # Gruppo: Metering Standard (colorazione LUFS/TP)
@@ -684,9 +879,69 @@ class OptionsDialog(QDialog):
         self._metering_combo.currentTextChanged.connect(self._update_metering_desc)
         self._update_metering_desc(self._metering_combo.currentText())
 
-        layout.addWidget(grp_meter)
+        scroll_layout.addWidget(grp_meter)
 
-        layout.addStretch()
+        # ════════════════════════════════════════════════════════════════
+        # Gruppo: Email Template
+        # ════════════════════════════════════════════════════════════════
+        grp_email = QGroupBox("Email Template")
+        email_layout = QVBoxLayout(grp_email)
+        email_layout.setSpacing(8)
+
+        # Info label
+        email_info = QLabel("Customize subject and body for the email button. Placeholders: {stream_name}, {stream_url}")
+        email_info.setWordWrap(True)
+        email_info.setStyleSheet(f"color: {TEXT_DIM}; font-size: 12px; font-family: 'Courier New';")
+        email_layout.addWidget(email_info)
+
+        # Subject
+        subj_lbl = QLabel("Subject:")
+        subj_lbl.setStyleSheet(f"color: {TEXT}; font-size: 14px; font-family: 'Courier New';")
+        email_layout.addWidget(subj_lbl)
+
+        self._email_subject = QLineEdit()
+        self._email_subject.setText(CONFIG.email_subject)
+        self._email_subject.setPlaceholderText("Email subject...")
+        self._email_subject.setStyleSheet(f"""
+            QLineEdit {{
+                background: {BG_CARD2}; color: {TEXT};
+                border: 1px solid {GRAY}; border-radius: 4px;
+                padding: 8px 12px; font-family: 'Courier New'; font-size: 14px;
+            }}
+            QLineEdit:focus {{
+                border: 1px solid {ACCENT};
+            }}
+        """)
+        email_layout.addWidget(self._email_subject)
+
+        # Body
+        body_lbl = QLabel("Body:")
+        body_lbl.setStyleSheet(f"color: {TEXT}; font-size: 14px; font-family: 'Courier New';")
+        email_layout.addWidget(body_lbl)
+
+        self._email_body = QTextEdit()
+        self._email_body.setPlainText(CONFIG.email_body)
+        self._email_body.setPlaceholderText("Email body...")
+        self._email_body.setFixedHeight(80)
+        self._email_body.setStyleSheet(f"""
+            QTextEdit {{
+                background: {BG_CARD2}; color: {TEXT};
+                border: 1px solid {GRAY}; border-radius: 4px;
+                padding: 8px 12px; font-family: 'Courier New'; font-size: 14px;
+            }}
+            QTextEdit:focus {{
+                border: 1px solid {ACCENT};
+            }}
+        """)
+        email_layout.addWidget(self._email_body)
+
+        scroll_layout.addWidget(grp_email)
+
+        scroll_layout.addStretch()
+        
+        # Finalize scroll area
+        scroll.setWidget(scroll_content)
+        layout.addWidget(scroll, 1)
 
         # ── Pulsanti ─────────────────────────────────────────────────────
         btn_row = QHBoxLayout()
@@ -752,6 +1007,9 @@ class OptionsDialog(QDialog):
         # Reset metering standard a EBU R128
         idx = list(METERING_STANDARDS.keys()).index("EBU R128")
         self._metering_combo.setCurrentIndex(idx)
+        # Reset email template
+        self._email_subject.setText("[AudioStreamMETER] Issue with stream: {stream_name}")
+        self._email_body.setPlainText("Stream URL: {stream_url}\nStream Name: {stream_name}\n\nIssue description:\n")
 
     def _apply(self):
         CONFIG.sample_rate       = self._sr_combo.currentData()
@@ -763,6 +1021,10 @@ class OptionsDialog(QDialog):
         # Applica metering standard
         selected_std = self._metering_combo.currentData()
         set_metering_standard(selected_std)
+        # Applica email template e salva su file
+        CONFIG.email_subject     = self._email_subject.text()
+        CONFIG.email_body        = self._email_body.toPlainText()
+        _save_email_template()
         self.config_changed.emit()
         self.accept()
 
@@ -772,14 +1034,34 @@ class StreamCard(QFrame):
     remove_requested = pyqtSignal(object)
     listen_requested = pyqtSignal(object)   # emesso quando si vuole ascoltare
 
-    def __init__(self, url: str, index: int, parent=None):
+    # ── Cached FFT constants (computed once, shared by all instances) ──────────
+    _fft_cache: dict = {}
+    
+    @classmethod
+    def _get_fft_cache(cls, sample_rate: int, fft_size: int = 2048, n_display: int = 256):
+        """Returns cached FFT constants for given sample rate."""
+        key = (sample_rate, fft_size, n_display)
+        if key not in cls._fft_cache:
+            window = np.hanning(fft_size)
+            log_freqs = np.logspace(np.log10(20), np.log10(20000), n_display)
+            freq_per_bin = sample_rate / fft_size
+            bin_indices = np.clip((log_freqs / freq_per_bin).astype(int), 0, fft_size // 2)
+            x_axis = np.log10(log_freqs)
+            cls._fft_cache[key] = (window, log_freqs, bin_indices, x_axis)
+        return cls._fft_cache[key]
+
+    def __init__(self, url: str, index: int, parent=None, email: str = ""):
         super().__init__(parent)
         self.url = url
         self.index = index
         self._custom_name = ""          # nome impostato dall'utente
-        # Buffer waveform stereo (L e R separati)
-        self._waveform_buf_l = deque([0.0] * WAVEFORM_HISTORY, maxlen=WAVEFORM_HISTORY)
-        self._waveform_buf_r = deque([0.0] * WAVEFORM_HISTORY, maxlen=WAVEFORM_HISTORY)
+        self._email = email             # email di contatto per supporto
+        
+        # ── Buffer waveform stereo (numpy arrays for performance) ────────────
+        self._waveform_arr_l = np.zeros(WAVEFORM_HISTORY, dtype=np.float32)
+        self._waveform_arr_r = np.zeros(WAVEFORM_HISTORY, dtype=np.float32)
+        self._waveform_write_idx = 0
+        
         # Ring buffer numpy per LUFS stereo (evita conversioni deque → list → numpy)
         self._lufs_buf_size = int(CONFIG.sample_rate * LUFS_SHORTTERM_SEC)  # frames stereo
         self._lufs_buf = np.zeros((self._lufs_buf_size, 2), dtype=np.int16)  # shape (N, 2)
@@ -789,13 +1071,15 @@ class StreamCard(QFrame):
         self._lufs_value = -70.0
         self._tp_l = -70.0              # True Peak canale sinistro
         self._tp_r = -70.0              # True Peak canale destro
-        self._last_emit_time = 0.0     # timestamp ultimo chunk ricevuto da ffmpeg
-        self._buffer_latency_ms = 0.0   # latenza misurata del processing pipeline
-        self._latency_sum = 0.0         # somma per calcolo incrementale media
-        self._latency_samples = deque(maxlen=50)  # ultimi 50 campioni per media mobile
         self._worker = None
         self._qthread = None
         self._listening = False
+        
+        # ── Performance: throttle counters & color cache ─────────────────────
+        self._frame_counter = 0         # counts refresh_display calls
+        self._last_lufs_update = 0.0    # timestamp of last LUFS computation
+        self._last_lufs_color = None    # cached color to avoid setStyleSheet
+        self._last_tp_color = None      # cached TP color
 
         self._build_ui()
         self._start_stream()
@@ -810,43 +1094,47 @@ class StreamCard(QFrame):
                 border-radius: 8px;
             }}
         """)
-        self.setMinimumHeight(290)
+        # Allow cards to shrink to fit 4x4 grid (16 streams) on 700px height window
+        # Calculation: (700 - ~120 toolbar) / 4 rows - 4 spacing = ~140px per card
+        self.setMinimumHeight(145)  # Compact height for 4x4 grid
+        self.setMinimumWidth(300)   # Minimum width to fit 4 columns
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
 
         root = QVBoxLayout(self)
-        root.setContentsMargins(10, 8, 10, 8)
-        root.setSpacing(6)
+        root.setContentsMargins(6, 4, 6, 4)  # Tighter margins for compact fit
+        root.setSpacing(3)  # Minimal spacing
 
         # ── Header ──────────────────────────────────────────────────────────
         header = QHBoxLayout()
-        header.setSpacing(8)
+        header.setSpacing(4)  # Compact header spacing
 
         # Pallino status
         self._status_dot = QLabel("●")
-        self._status_dot.setFont(QFont("Courier", 13))
+        self._status_dot.setFont(QFont("Courier", 10))
         self._status_dot.setStyleSheet(f"color: {YELLOW};")
-        self._status_dot.setFixedWidth(20)
+        self._status_dot.setFixedWidth(14)
 
         # Numero indice (fisso)
         self._index_label = QLabel(f"#{self.index + 1}")
-        self._index_label.setStyleSheet(f"color: {TEXT_DIM}; font-size: 13px; font-family: 'Courier New';")
-        self._index_label.setFixedWidth(32)
+        self._index_label.setStyleSheet(f"color: {TEXT_DIM}; font-size: 10px; font-family: 'Courier New';")
+        self._index_label.setFixedWidth(22)
 
         # Editable name — shows URL as dark tooltip
         default_name = self._short_url()
         self._name_edit = QLineEdit(default_name)
-        self._name_edit.setPlaceholderText("Stream name…")
+        self._name_edit.setPlaceholderText("Stream…")
         self._name_edit.setToolTip(self.url)
-        self._name_edit.setFixedHeight(32)
+        self._name_edit.setFixedHeight(22)  # Compact header
         self._name_edit.setStyleSheet(f"""
             QLineEdit {{
                 background: transparent;
                 color: {TEXT};
                 border: none;
                 border-bottom: 1px solid transparent;
-                font-size: 16px;
+                font-size: 12px;
                 font-family: 'Courier New';
                 font-weight: bold;
-                padding: 4px 6px;
+                padding: 2px 4px;
             }}
             QLineEdit:hover {{
                 border-bottom: 1px solid {GRAY2};
@@ -860,30 +1148,52 @@ class StreamCard(QFrame):
                 background-color: #000000;
                 color: #ffffff;
                 border: 1px solid #3a3f52;
-                padding: 6px 8px;
+                padding: 4px 6px;
                 font-family: 'Courier New';
-                font-size: 13px;
+                font-size: 11px;
             }}
         """)
         self._name_edit.editingFinished.connect(self._on_name_changed)
 
+        # Email button (visible only if email is set)
+        self._email_btn = QPushButton("✉")
+        self._email_btn.setFixedSize(20, 20)
+        self._email_btn.setToolTip(f"Contact: {self._email}" if self._email else "No email")
+        self._email_btn.setStyleSheet(f"""
+            QPushButton {{
+                background: transparent;
+                color: {TEXT if self._email else GRAY};
+                border: none;
+                font-size: 22px;
+                padding: 0px;
+            }}
+            QPushButton:hover {{
+                color: {GREEN if self._email else GRAY};
+            }}
+            QPushButton:disabled {{
+                color: {GRAY};
+            }}
+        """)
+        self._email_btn.setEnabled(bool(self._email))
+        self._email_btn.clicked.connect(self._send_email)
+
         # Listen button
-        self._listen_btn = QPushButton("▶ Listen")
-        self._listen_btn.setFixedHeight(28)
-        self._listen_btn.setFixedWidth(100)
+        self._listen_btn = QPushButton("▶")
+        self._listen_btn.setFixedSize(22, 20)  # Compact square button
+        self._listen_btn.setToolTip("Listen to stream")
         self._listen_btn.setStyleSheet(self._listen_btn_style(False))
         self._listen_btn.clicked.connect(lambda: self.listen_requested.emit(self))
 
         # Bottone rimozione
         remove_btn = QPushButton("✕")
         remove_btn.setObjectName("closeBtn")
-        remove_btn.setFixedSize(28, 28)
+        remove_btn.setFixedSize(20, 20)
         remove_btn.setStyleSheet(f"""
             QPushButton#closeBtn {{
                 background: transparent;
                 color: {CLOSE_BTN};
                 border: none;
-                font-size: 16px;
+                font-size: 13px;
                 font-weight: bold;
                 padding: 0px;
             }}
@@ -897,6 +1207,7 @@ class StreamCard(QFrame):
         header.addWidget(self._status_dot)
         header.addWidget(self._index_label)
         header.addWidget(self._name_edit, 1)
+        header.addWidget(self._email_btn)
         header.addWidget(self._listen_btn)
         header.addWidget(remove_btn)
         root.addLayout(header)
@@ -904,7 +1215,7 @@ class StreamCard(QFrame):
         # ── Waveform Stereo: L sopra (cyan), R sotto (magenta) ──────────
         pg.setConfigOptions(antialias=False)
         self._plot = pg.PlotWidget(background=BG_CARD2)
-        self._plot.setMinimumHeight(100)
+        self._plot.setMinimumHeight(36)  # Compact mode for 4x4 grid
         self._plot.hideAxis("left")
         self._plot.hideAxis("bottom")
         self._plot.setMouseEnabled(x=False, y=False)
@@ -926,7 +1237,8 @@ class StreamCard(QFrame):
 
         # ── Spectrum Analyzer ─────────────────────────────────────────────────
         self._spectrum_plot = pg.PlotWidget(background=BG_CARD2)
-        self._spectrum_plot.setFixedHeight(80)
+        self._spectrum_plot.setMinimumHeight(26)  # Compact for 4x4 grid
+        self._spectrum_plot.setMaximumHeight(45)   # Limit growth
         self._spectrum_plot.setMouseEnabled(x=False, y=False)
         self._spectrum_plot.setYRange(-80, 0, padding=0.05)
         # Logarithmic X axis: 20Hz to 20kHz
@@ -939,7 +1251,7 @@ class StreamCard(QFrame):
         left_axis.setPen(pg.mkPen(color=GRAY, width=1))
         left_axis.setTextPen(pg.mkPen(color=TEXT_DIM))
         left_axis.setWidth(30)
-        db_ticks = [(-60, "-60"), (-35, "-35"), (-10, "-10")]
+        db_ticks = [(-60, "-60"), (-10, "-10")]
         left_axis.setTicks([db_ticks])
         
         # Configure bottom axis with frequency labels
@@ -966,22 +1278,20 @@ class StreamCard(QFrame):
         meter_row = QHBoxLayout()
         meter_row.setSpacing(8)
 
-        self._lufs_label = QLabel("LUFS  —.— ")
+        self._lufs_label = QLabel("LUFS —.—")
         self._lufs_label.setStyleSheet(
-            f"color: {ACCENT}; font-size: 11px; font-family: 'Courier New'; font-weight: bold;")
-        self._lufs_label.setFixedWidth(105)
+            f"color: {ACCENT}; font-size: 10px; font-family: 'Courier New'; font-weight: bold;")
 
-        self._tp_label = QLabel("TP L:—.— R:—.—")
+        self._tp_label = QLabel("TP L:— R:—")
         self._tp_label.setStyleSheet(
-            f"color: {TEXT_DIM}; font-size: 11px; font-family: 'Courier New'; font-weight: bold;")
-        self._tp_label.setFixedWidth(180)
+            f"color: {TEXT_DIM}; font-size: 10px; font-family: 'Courier New'; font-weight: bold;")
         self._tp_label.setToolTip("True Peak (dBFS) - L=Left R=Right")
 
         self._lufs_bar = QProgressBar()
         self._lufs_bar.setRange(0, 100)
         self._lufs_bar.setValue(0)
         self._lufs_bar.setTextVisible(False)
-        self._lufs_bar.setFixedHeight(10)
+        self._lufs_bar.setFixedHeight(8)  # Compact bar
         self._lufs_bar.setStyleSheet(f"""
             QProgressBar {{
                 background: {BG_CARD};
@@ -1012,10 +1322,10 @@ class StreamCard(QFrame):
                     background: {GREEN};
                     color: #000;
                     border: none;
-                    border-radius: 4px;
-                    font-size: 13px;
+                    border-radius: 3px;
+                    font-size: 11px;
                     font-weight: bold;
-                    padding: 0 6px;
+                    padding: 0;
                 }}
                 QPushButton:hover {{ background: #00cc70; }}
             """
@@ -1024,9 +1334,9 @@ class StreamCard(QFrame):
                 background: {BG_CARD2};
                 color: {TEXT_DIM};
                 border: 1px solid {GRAY};
-                border-radius: 4px;
-                font-size: 13px;
-                padding: 0 6px;
+                border-radius: 3px;
+                font-size: 11px;
+                padding: 0;
             }}
             QPushButton:hover {{ color: {TEXT}; border-color: {GRAY2}; }}
         """
@@ -1040,7 +1350,7 @@ class StreamCard(QFrame):
 
     def set_listening(self, active: bool):
         self._listening = active
-        self._listen_btn.setText("■ Stop" if active else "▶ Listen")
+        self._listen_btn.setText("||" if active else "▶")
         self._listen_btn.setStyleSheet(self._listen_btn_style(active))
         # Bordo card evidenziato durante ascolto
         border_color = GREEN if active else GRAY
@@ -1060,6 +1370,22 @@ class StreamCard(QFrame):
             self._name_edit.setText(self._short_url())
             self._custom_name = ""
 
+    def _send_email(self):
+        """Opens default email client with pre-filled subject about this stream."""
+        if not self._email:
+            return
+        stream_name = self._custom_name or self._short_url()
+        # Use configurable email template with placeholder substitution
+        subject = CONFIG.email_subject.format(stream_name=stream_name, stream_url=self.url)
+        body = CONFIG.email_body.format(stream_name=stream_name, stream_url=self.url)
+        # URL-encode subject and body for mailto link
+        import urllib.parse
+        mailto_url = f"mailto:{self._email}?subject={urllib.parse.quote(subject)}&body={urllib.parse.quote(body)}"
+        try:
+            webbrowser.open(mailto_url)
+        except Exception as e:
+            QMessageBox.warning(self, "Email Error", f"Could not open email client:\n{e}")
+
     # ── Stream ────────────────────────────────────────────────────────────────
     def _start_stream(self):
         self._qthread = QThread()
@@ -1073,7 +1399,7 @@ class StreamCard(QFrame):
 
     def stop_stream(self):
         if self._worker:
-            self._worker.stop()
+            self._worker.stop()   # killa subito ffmpeg e setta stop_event
             # Disconnetti tutti i segnali prima che Qt distrugga l'oggetto
             try:
                 self._worker.data_ready.disconnect()
@@ -1083,13 +1409,13 @@ class StreamCard(QFrame):
                 pass  # già disconnessi
         if self._qthread:
             self._qthread.quit()
-            self._qthread.wait(2000)
+            if not self._qthread.wait(3000):
+                # QThread non terminato: termina forzatamente
+                self._qthread.terminate()
+                self._qthread.wait(1000)
 
     # ── Slots ─────────────────────────────────────────────────────────────────
     def _on_data(self, samples: np.ndarray, emit_time: float):
-        # Salva il timestamp per calcolare la latenza in refresh_display
-        self._last_emit_time = emit_time
-        
         # Reshape interleaved stereo (L,R,L,R...) → (N, 2)
         stereo = samples.reshape(-1, 2)
         n_frames = stereo.shape[0]
@@ -1098,10 +1424,28 @@ class StreamCard(QFrame):
         smooth = max(1, CONFIG.waveform_smooth)
         step = max(1, n_frames // (256 // smooth))
         # Scala e offset: L metà superiore, R metà inferiore
-        left_scaled = stereo[::step, 0].astype(float) * 0.5 + 16384
-        right_scaled = stereo[::step, 1].astype(float) * 0.5 - 16384
-        self._waveform_buf_l.extend(left_scaled)
-        self._waveform_buf_r.extend(right_scaled)
+        left_scaled = stereo[::step, 0].astype(np.float32) * 0.5 + 16384
+        right_scaled = stereo[::step, 1].astype(np.float32) * 0.5 - 16384
+        
+        # ── Ring buffer waveform (numpy, no deque) ───────────────────────
+        n_new = len(left_scaled)
+        buf_size = WAVEFORM_HISTORY
+        if n_new >= buf_size:
+            self._waveform_arr_l[:] = left_scaled[-buf_size:]
+            self._waveform_arr_r[:] = right_scaled[-buf_size:]
+            self._waveform_write_idx = 0
+        else:
+            end_idx = self._waveform_write_idx + n_new
+            if end_idx <= buf_size:
+                self._waveform_arr_l[self._waveform_write_idx:end_idx] = left_scaled
+                self._waveform_arr_r[self._waveform_write_idx:end_idx] = right_scaled
+            else:
+                first_part = buf_size - self._waveform_write_idx
+                self._waveform_arr_l[self._waveform_write_idx:] = left_scaled[:first_part]
+                self._waveform_arr_r[self._waveform_write_idx:] = right_scaled[:first_part]
+                self._waveform_arr_l[:n_new - first_part] = left_scaled[first_part:]
+                self._waveform_arr_r[:n_new - first_part] = right_scaled[first_part:]
+            self._waveform_write_idx = end_idx % buf_size
         
         # ── Ring buffer numpy stereo per LUFS ────────────────────────────
         buf_size = self._lufs_buf_size
@@ -1130,73 +1474,51 @@ class StreamCard(QFrame):
         self._name_edit.setStyleSheet(f"color: {RED}; font-size: 13px; font-family: 'Courier New'; background: transparent; border: none;")
 
     def refresh_display(self):
-        # ── Misura latenza reale del processing pipeline (incrementale O(1)) ───
-        if self._last_emit_time > 0:
-            display_time = time.time()
-            latency_ms = (display_time - self._last_emit_time) * 1000
-            if len(self._latency_samples) == self._latency_samples.maxlen:
-                self._latency_sum -= self._latency_samples[0]
-            self._latency_samples.append(latency_ms)
-            self._latency_sum += latency_ms
-            self._buffer_latency_ms = self._latency_sum / len(self._latency_samples)
+        self._frame_counter += 1
+        current_time = time.time()
         
-        # Aggiorna waveform stereo (L e R)
-        self._curve_l.setData(list(self._waveform_buf_l))
-        self._curve_r.setData(list(self._waveform_buf_r))
+        # ── Aggiorna waveform stereo (numpy array, no list conversion) ───────
+        # Riordina il ring buffer per visualizzazione continua
+        idx = self._waveform_write_idx
+        waveform_l = np.roll(self._waveform_arr_l, -idx)
+        waveform_r = np.roll(self._waveform_arr_r, -idx)
+        self._curve_l.setData(waveform_l)
+        self._curve_r.setData(waveform_r)
 
-        # ── Spectrum FFT (L e R separati) ─────────────────────────────────
-        if self._lufs_filled >= 2048:
-            # Prendi gli ultimi 2048 campioni per FFT
+        # ── Spectrum FFT (throttled: every 3 frames) ─────────────────────────
+        if self._frame_counter % 3 == 0 and self._lufs_filled >= 2048:
             fft_size = 2048
-            if self._lufs_filled >= fft_size:
-                # Calcola indice di partenza nel ring buffer
-                start_idx = (self._lufs_write_idx - fft_size) % self._lufs_buf_size
-                if start_idx + fft_size <= self._lufs_buf_size:
-                    fft_data = self._lufs_buf[start_idx:start_idx + fft_size]
-                else:
-                    # Wrap around
-                    first_part = self._lufs_buf[start_idx:]
-                    second_part = self._lufs_buf[:fft_size - len(first_part)]
-                    fft_data = np.vstack([first_part, second_part])
-                
-                # Applica finestra di Hanning e calcola FFT per L e R
-                window = np.hanning(fft_size)
-                left_ch = fft_data[:, 0].astype(np.float64) / 32768.0
-                right_ch = fft_data[:, 1].astype(np.float64) / 32768.0
-                
-                fft_l = np.abs(np.fft.rfft(left_ch * window))
-                fft_r = np.abs(np.fft.rfft(right_ch * window))
-                
-                # Converti in dB (con floor a -80 dB)
-                eps = 1e-10
-                db_l = 20 * np.log10(fft_l / fft_size + eps)
-                db_r = 20 * np.log10(fft_r / fft_size + eps)
-                db_l = np.clip(db_l, -80, 0)
-                db_r = np.clip(db_r, -80, 0)
-                
-                # Map FFT bins to logarithmic frequency scale (20Hz - 20kHz)
-                sample_rate = CONFIG.sample_rate
-                freq_per_bin = sample_rate / fft_size
-                
-                # Create logarithmically spaced frequency points
-                n_display_points = 256
-                log_freqs = np.logspace(np.log10(20), np.log10(20000), n_display_points)
-                
-                # Map frequencies to FFT bin indices
-                bin_indices = (log_freqs / freq_per_bin).astype(int)
-                bin_indices = np.clip(bin_indices, 0, len(db_l) - 1)
-                
-                # Sample FFT at these indices
-                db_l_log = db_l[bin_indices]
-                db_r_log = db_r[bin_indices]
-                
-                # X axis in log10 scale (matches plot X range)
-                x_axis = np.log10(log_freqs)
-                self._spectrum_curve_l.setData(x_axis, db_l_log)
-                self._spectrum_curve_r.setData(x_axis, db_r_log)
+            # Calcola indice di partenza nel ring buffer
+            start_idx = (self._lufs_write_idx - fft_size) % self._lufs_buf_size
+            if start_idx + fft_size <= self._lufs_buf_size:
+                fft_data = self._lufs_buf[start_idx:start_idx + fft_size]
+            else:
+                # Wrap around
+                first_part = self._lufs_buf[start_idx:]
+                second_part = self._lufs_buf[:fft_size - len(first_part)]
+                fft_data = np.vstack([first_part, second_part])
+            
+            # Get cached FFT constants (window, log_freqs, bin_indices, x_axis)
+            window, _, bin_indices, x_axis = self._get_fft_cache(CONFIG.sample_rate, fft_size)
+            
+            left_ch = fft_data[:, 0].astype(np.float64) / 32768.0
+            right_ch = fft_data[:, 1].astype(np.float64) / 32768.0
+            
+            fft_l = np.abs(np.fft.rfft(left_ch * window))
+            fft_r = np.abs(np.fft.rfft(right_ch * window))
+            
+            # Converti in dB (con floor a -80 dB)
+            eps = 1e-10
+            db_l = np.clip(20 * np.log10(fft_l / fft_size + eps), -80, 0)
+            db_r = np.clip(20 * np.log10(fft_r / fft_size + eps), -80, 0)
+            
+            # Sample FFT at cached bin indices
+            self._spectrum_curve_l.setData(x_axis, db_l[bin_indices])
+            self._spectrum_curve_r.setData(x_axis, db_r[bin_indices])
 
-        # ── LUFS/TP dal ring buffer numpy stereo ───────────────────────
-        if self._lufs_filled >= CONFIG.sample_rate // 2:
+        # ── LUFS/TP (throttled: every 500ms = ~10 updates/sec) ───────────────
+        if current_time - self._last_lufs_update >= 0.5 and self._lufs_filled >= CONFIG.sample_rate // 2:
+            self._last_lufs_update = current_time
             if self._lufs_filled == self._lufs_buf_size:
                 arr = self._lufs_buf
             else:
@@ -1211,34 +1533,36 @@ class StreamCard(QFrame):
         
         # LUFS display
         if lufs <= -60:
-            txt, bar_val, color = "LUFS  —.—", 0, TEXT_DIM
+            txt, bar_val, color = "LUFS —.—", 0, TEXT_DIM
         else:
-            txt = f"LUFS: {lufs:+.1f}"
+            txt = f"LUFS {lufs:+.1f}"
             bar_val = int(max(0, min(100, (lufs + 60) / 54 * 100)))
             color = metering_std.get_lufs_color(lufs)
 
-        # True Peak stereo display (L e R separati)
+        # True Peak stereo display
         tp_max = max(tp_l, tp_r)
         tp_color = metering_std.get_tp_color(tp_max)
         if tp_l <= -60 and tp_r <= -60:
-            tp_txt = "TP: L:—.— / R:—.—"
+            tp_txt = "TP L:— R:—"
             tp_color = TEXT_DIM
         else:
-            tp_l_s = f"{tp_l:+.1f}" if tp_l > -60 else "—.—"
-            tp_r_s = f"{tp_r:+.1f}" if tp_r > -60 else "—.—"
-            tp_txt = f"TP: L:{tp_l_s} / R:{tp_r_s}"
+            tp_l_s = f"{tp_l:+.0f}" if tp_l > -60 else "—"
+            tp_r_s = f"{tp_r:+.0f}" if tp_r > -60 else "—"
+            tp_txt = f"TP L:{tp_l_s} R:{tp_r_s}"
 
         self._lufs_label.setText(txt)
-        self._lufs_label.setStyleSheet(
-            f"color: {color}; font-size: 14px; font-family: 'Courier New'; font-weight: bold;")
         self._tp_label.setText(tp_txt)
-        self._tp_label.setStyleSheet(
-            f"color: {tp_color}; font-size: 14px; font-family: 'Courier New'; font-weight: bold;")
         self._lufs_bar.setValue(bar_val)
-
-    def get_buffer_latency_ms(self) -> float:
-        """Ritorna la latenza misurata del processing pipeline (ffmpeg read → display)."""
-        return self._buffer_latency_ms
+        
+        # ── Update stylesheet only when color changes ────────────────────────
+        if color != self._last_lufs_color:
+            self._last_lufs_color = color
+            self._lufs_label.setStyleSheet(
+                f"color: {color}; font-size: 10px; font-family: 'Courier New'; font-weight: bold;")
+        if tp_color != self._last_tp_color:
+            self._last_tp_color = tp_color
+            self._tp_label.setStyleSheet(
+                f"color: {tp_color}; font-size: 10px; font-family: 'Courier New'; font-weight: bold;")
 
 
 # ── Filtro eventi Windows per rilevare sblocco sessione ───────────────────────
@@ -1270,15 +1594,15 @@ class MainWindow(QMainWindow):
 
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Stream Audio Monitor")
+        self.setWindowTitle("AudioStreamMETER")
         self.setMinimumSize(1100, 700)
         self._cards: list[StreamCard] = []
         self._active_player: AudioPlayer | None = None
         self._active_card:  StreamCard  | None = None
 
-        # Cartella preset: stessa directory dello script
-        self._preset_dir = Path(__file__).parent / "presets"
-        self._preset_dir.mkdir(exist_ok=True)
+        # Cartella preset: dentro customization/
+        self._preset_dir = _CUSTOMIZATION_DIR / "presets"
+        self._preset_dir.mkdir(parents=True, exist_ok=True)
 
         self._build_ui()
         self._refresh_preset_list()
@@ -1360,24 +1684,14 @@ class MainWindow(QMainWindow):
         left_col = QVBoxLayout()
         left_col.setSpacing(1)
 
-        title = QLabel("◈ AudioStreamMETER")
-        title.setStyleSheet(f"color: {ACCENT}; font-size: 18px; font-family: 'Courier New'; font-weight: bold; letter-spacing: 2px;")
+        title = QLabel("AudioStreamMETER v3.1")
+        title.setStyleSheet(f"color: {ACCENT}; font-size: 16px; font-family: 'Courier New'; font-weight: bold; letter-spacing: 2px;")
 
-        # Prima riga indicatori: buffer
-        indicators_row1 = QHBoxLayout()
-        indicators_row1.setSpacing(16)
-        
-        self._latency_label = QLabel("⏱ Buffer: — ms")
-        self._latency_label.setToolTip(
-            "Buffering Latency: tempo reale misurato tra\n"
-            "la lettura dati da ffmpeg e la visualizzazione su schermo."
-        )
-        self._latency_label.setStyleSheet(f"color: {TEXT_DIM}; font-size: 15px; font-family: 'Courier New';")
+        # Author attribution
+        author_label = QLabel("Made by: Andrea Mazzurana")
+        author_label.setStyleSheet(f"color: {TEXT_DIM}; font-size: 14px; font-family: 'Courier New'; font-style: italic;")
 
-        indicators_row1.addWidget(self._latency_label)
-        indicators_row1.addStretch()
-
-        # Seconda riga: metering standard
+        # Metering standard indicator
         self._metering_std_label = QLabel(f"📊 {CURRENT_METERING_STANDARD}")
         std = get_current_metering_standard()
         self._metering_std_label.setToolTip(
@@ -1389,7 +1703,7 @@ class MainWindow(QMainWindow):
         self._metering_std_label.setStyleSheet(f"color: {ACCENT}; font-size: 14px; font-family: 'Courier New';")
 
         left_col.addWidget(title)
-        left_col.addLayout(indicators_row1)
+        left_col.addWidget(author_label)
         left_col.addWidget(self._metering_std_label)
 
         # Area testo multi-URL
@@ -1399,7 +1713,7 @@ class MainWindow(QMainWindow):
             "\n(one per line, or separated by space/comma)"
         )
         self._url_input.setMinimumWidth(350)
-        self._url_input.setFixedHeight(72)
+        self._url_input.setFixedHeight(54)  # Compact height
         self._url_input.setStyleSheet(f"""
             QTextEdit {{
                 background: {BG_CARD2};
@@ -1418,7 +1732,7 @@ class MainWindow(QMainWindow):
         add_col.setSpacing(2)
 
         self._add_btn = QPushButton("+ Add Stream")
-        self._add_btn.setFixedHeight(50)
+        self._add_btn.setFixedHeight(36)  # Compact button
         self._add_btn.setFixedWidth(180)
         self._add_btn.clicked.connect(self._add_streams)
 
@@ -1431,8 +1745,8 @@ class MainWindow(QMainWindow):
 
         # Pulsante opzioni
         options_btn = QPushButton("⚙")
-        options_btn.setFixedHeight(72)
-        options_btn.setFixedWidth(90)
+        options_btn.setFixedHeight(54)  # Match URL input
+        options_btn.setFixedWidth(70)
         options_btn.setToolTip("Configure ffmpeg decoding and UI parameters, choose audio level Standards.")
         options_btn.setStyleSheet(f"""
             QPushButton {{
@@ -1452,9 +1766,9 @@ class MainWindow(QMainWindow):
         """)
         options_btn.clicked.connect(self._show_options)
 
-        quit_btn = QPushButton("⏻  Exit")
-        quit_btn.setFixedHeight(72)
-        quit_btn.setFixedWidth(100)
+        quit_btn = QPushButton("Exit") #⏻
+        quit_btn.setFixedHeight(54)  # Match URL input
+        quit_btn.setFixedWidth(80)
         quit_btn.setToolTip("Stop all streams and close the program")
         quit_btn.setStyleSheet(f"""
             QPushButton {{
@@ -1571,7 +1885,7 @@ class MainWindow(QMainWindow):
 
         self._grid_container = QWidget()
         self._grid = QGridLayout(self._grid_container)
-        self._grid.setSpacing(8)
+        self._grid.setSpacing(4)  # Minimal grid spacing
         self._scroll.setWidget(self._grid_container)
 
         main_layout.addWidget(self._scroll, 1)
@@ -1609,13 +1923,17 @@ class MainWindow(QMainWindow):
         return self._preset_combo.itemData(idx)
 
     def _load_preset_file(self, path: Path, replace: bool = False):
-        """Legge un CSV nome,url e aggiunge gli stream (o sostituisce se replace=True)."""
+        """Legge un CSV nome,url,email e aggiunge gli stream (o sostituisce se replace=True)."""
         try:
             with open(path, newline="", encoding="utf-8") as f:
                 reader = csv.reader(f)
-                rows = [(r[0].strip(), r[1].strip())
-                        for r in reader
-                        if len(r) >= 2 and r[1].strip().startswith("http")]
+                rows = []
+                for r in reader:
+                    if len(r) >= 2 and r[1].strip().startswith("http"):
+                        name = r[0].strip()
+                        url = r[1].strip()
+                        email = r[2].strip() if len(r) >= 3 else ""
+                        rows.append((name, url, email))
         except Exception as e:
             QMessageBox.critical(self, "Preset read error", str(e))
             return
@@ -1629,7 +1947,7 @@ class MainWindow(QMainWindow):
             self._close_all_streams()
 
         added = skipped = 0
-        for name, url in rows:
+        for name, url, email in rows:
             if len(self._cards) >= self.MAX_STREAMS:
                 skipped += 1
                 continue
@@ -1637,7 +1955,7 @@ class MainWindow(QMainWindow):
                 skipped += 1
                 continue
             idx = len(self._cards)
-            card = StreamCard(url, idx, self._grid_container)
+            card = StreamCard(url, idx, self._grid_container, email=email)
             card.remove_requested.connect(self._remove_card)
             card.listen_requested.connect(self._on_listen_requested)
             # Imposta nome custom se specificato nel CSV
@@ -1670,17 +1988,17 @@ class MainWindow(QMainWindow):
         self._update_count()
 
     def _save_preset_to(self, path: Path):
-        """Salva nome+url di tutti gli stream attivi nel file indicato."""
+        """Salva nome+url+email di tutti gli stream attivi nel file indicato."""
         if not self._cards:
             QMessageBox.warning(self, "No streams", "There are no active streams to save.")
             return
         try:
             with open(path, "w", newline="", encoding="utf-8") as f:
                 writer = csv.writer(f)
-                writer.writerow(["nome", "url"])   # intestazione opzionale
+                writer.writerow(["nome", "url", "email"])   # intestazione
                 for card in self._cards:
                     name = card._custom_name or card._name_edit.text()
-                    writer.writerow([name, card.url])
+                    writer.writerow([name, card.url, card._email])
             self._refresh_preset_list()
             # Seleziona il preset appena salvato nel combo
             for i in range(self._preset_combo.count()):
@@ -1848,19 +2166,59 @@ class MainWindow(QMainWindow):
         if self._active_card: self._active_card.set_listening(False)
         self._active_card = self._active_player = None
 
+    @staticmethod
+    def _compute_row_sizes(n: int) -> list[int]:
+        """Compute balanced row sizes (3 or 4 items per row) for n streams."""
+        # Predefined layouts for optimal visual balance
+        layouts = {
+            1: [1],
+            2: [2],
+            3: [3],
+            4: [2, 2],
+            5: [3, 2],
+            6: [3, 3],
+            7: [4, 3],
+            8: [4, 4],
+            9: [3, 3, 3],
+            10: [3, 4, 3],      # Balanced 3-4-3
+            11: [4, 4, 3],
+            12: [4, 4, 4],
+            13: [4, 3, 3, 3],
+            14: [3, 4, 3, 4],   # Alternating 3-4-3-4
+            15: [4, 4, 4, 3],
+            16: [4, 4, 4, 4],
+        }
+        return layouts.get(n, [4] * (n // 4) + ([n % 4] if n % 4 else []))
+
     def _relayout(self):
         while self._grid.count():
             item = self._grid.takeAt(0)
             if item and item.widget(): item.widget().setParent(None)
         n = len(self._cards)
         if n == 0:
-            self._grid.addWidget(self._hint, 0, 0, 1, 4); self._hint.show(); return
-        cols = 1 if n == 1 else (2 if n <= 4 else (3 if n <= 6 else 4))
-        for c in range(4): self._grid.setColumnStretch(c, 0)
-        for i, card in enumerate(self._cards):
-            row, col = divmod(i, cols)
-            self._grid.addWidget(card, row, col); card.show()
-        for c in range(cols): self._grid.setColumnStretch(c, 1)
+            self._grid.addWidget(self._hint, 0, 0, 1, 12); self._hint.show(); return
+        
+        # Compute balanced row sizes
+        row_sizes = self._compute_row_sizes(n)
+        
+        # Use 12-column grid (LCM of 1,2,3,4) for flexible spanning
+        # Cards in smaller rows span more columns to fill the same width
+        GRID_COLS = 12
+        
+        # Reset column stretches
+        for c in range(GRID_COLS): self._grid.setColumnStretch(c, 1)
+        
+        # Place cards with column spanning based on row size
+        card_idx = 0
+        for row_idx, row_size in enumerate(row_sizes):
+            col_span = GRID_COLS // row_size  # 12/4=3, 12/3=4, 12/2=6, 12/1=12
+            for item_idx in range(row_size):
+                if card_idx < len(self._cards):
+                    card = self._cards[card_idx]
+                    col_start = item_idx * col_span
+                    self._grid.addWidget(card, row_idx, col_start, 1, col_span)
+                    card.show()
+                    card_idx += 1
 
     def _update_count(self):
         n = len(self._cards)
@@ -1868,34 +2226,8 @@ class MainWindow(QMainWindow):
         self._add_btn.setEnabled(n < self.MAX_STREAMS)
 
     def _refresh_all(self):
-        total_latency = 0.0
-        active_streams = 0
         for card in self._cards:
             card.refresh_display()
-            lat = card.get_buffer_latency_ms()
-            if lat > 0:
-                total_latency += lat
-                active_streams += 1
-        
-        # Aggiorna Buffering Latency (media misurata)
-        if active_streams > 0:
-            avg_lat = total_latency / active_streams
-            lat_color = GREEN if avg_lat < 50 else (YELLOW if avg_lat < 150 else RED)
-            self._latency_label.setText(f"⏱ Buffer: {avg_lat:.0f} ms")
-            self._latency_label.setToolTip(
-                f"Buffering Latency media: {avg_lat:.0f} ms\n\n"
-                f"Tempo reale misurato tra:\n"
-                f"  • Lettura dati da ffmpeg (post-decode)\n"
-                f"  • Visualizzazione su schermo\n\n"
-                f"Include: Qt signal/slot + buffer + rendering\n"
-                f"Stream attivi: {active_streams}"
-            )
-            self._latency_label.setStyleSheet(
-                f"color: {lat_color}; font-size: 15px; font-family: 'Courier New';")
-        else:
-            self._latency_label.setText("⏱ Buffer: — ms")
-            self._latency_label.setStyleSheet(
-                f"color: {TEXT_DIM}; font-size: 15px; font-family: 'Courier New';")
 
     def _show_options(self):
         """Mostra il dialog delle opzioni."""

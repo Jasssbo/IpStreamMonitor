@@ -1,5 +1,5 @@
 #define MyAppName "AudioStreamMETER"
-#define MyAppVersion "2.0.3"
+#define MyAppVersion "3.1.0"
 #define MyAppPublisher "Andrea Mazzurana"
 #define MyAppExeName "AudioStreamMETER.exe"
 
@@ -58,6 +58,8 @@ Source: "{#SourceApp}\{#MyAppExeName}"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#SourceApp}\_internal\*"; DestDir: "{app}\_internal"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "{#SourceFfmpeg}\ffmpeg.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#SourceFfmpeg}\ffplay.exe"; DestDir: "{app}"; Flags: ignoreversion
+; User-customizable folder - contains presets, metering_standards, email_template
+Source: "{#SourcePath}customization\*"; DestDir: "{app}\customization"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Dirs]
 Name: "{app}\logs"

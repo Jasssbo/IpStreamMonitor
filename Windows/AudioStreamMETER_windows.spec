@@ -6,8 +6,9 @@ a = Analysis(
     pathex=[],
     binaries=[],
     datas=[
-        ('presets', 'presets'),
-        ('metering_standards', 'metering_standards'),
+        # customization/ folder (presets, metering_standards, email_template) is NOT bundled here.
+        # It is installed as a separate user-accessible folder by installer.iss
+        # directly in {app}/customization/ alongside the exe, NOT inside _internal/
     ],
     hiddenimports=[
         'PyQt6.QtCore', 'PyQt6.QtGui', 'PyQt6.QtWidgets',

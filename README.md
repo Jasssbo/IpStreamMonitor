@@ -13,7 +13,8 @@ Monitor up to 16 audio streams simultaneously with real-time waveform display + 
 - Simultaneous monitoring of up to 16 stereo audio streams
 - Real-time waveform visualization + L/R spectrum analysis
 - LUFS Short-term and True Peak Left/Right metering compliant with EBU R128
-- Preset management, to automatically load sets of max. 16 stream IPs with associated names, with a simple .CSV file
+- Preset management, to automatically load sets of max. 16 stream IPs with associated names and emails for quick technical communications, with a simple .CSV file
+- Email preconfigurable message, modified as a
 - Modern interface with PyQt6
 
 ---
@@ -29,10 +30,12 @@ AudioStreamMETER/
 │   └── presets/Default.csv   # Preset file for IP + Name sets with single-click recall
 ├── Windows/
 │   ├── AudioStreamMETER_windows.py   # Windows version
-│   ├── metering_standards/standards.json   # Metering standards configuration
-│   ├── presets/Default.csv   # Preset file for IP + Name sets with single-click recall
 │   ├── AudioStreamMETER_windows.spec # PyInstaller config
 │   ├── installer.iss               # Inno Setup script
+│   ├── customization/
+│   │    ├── metering_standards/standards.json   # Metering standards configuration
+│   │    ├── presets/Default.csv   # Preset file for IP + Name sets with single-click recall
+│   │    └── email_template.json  # The email template for technical support communications 
 │   └── ffmpeg_bin/                 # FFmpeg binaries for InnoSetup's packaging
 └── README.md
 ```
