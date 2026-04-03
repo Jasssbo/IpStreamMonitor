@@ -1,8 +1,7 @@
 # AudioStreamMETER
 
 Monitor Audio Stereo in tempo reale per stream HTTP (MP3/AAC), pensato per Radio e WebRadio.
-Visualizza fino a 16 flussi audio contemporaneamente con waveform e analizzatore di spettro in real-time, misurazione LUFS e TruePeak secondo lo standard algoritmico ITU-R BS 1770-5 e
-lo standard audio EBU R 128-2023, possibilità di: ascoltare il flusso audio, regolare le impostazioni di decodifica ffmpeg, display UI, standard di misurazione utilizzato (EBU R128, Youtube, Spotify, AES 71...) e di creare preset richiamabili tramite file "csv" di Stream Audio pubblici con Nome Associato.
+Visualizza fino a 16 flussi audio contemporaneamente con waveform e analizzatore di spettro in real-time, misurazione LUFS e TruePeak secondo lo standard algoritmico ITU-R BS 1770-5 e lo standard audio EBU R 128-2023, possibilità di: ascoltare il flusso audio, regolare le impostazioni di decodifica ffmpeg, display UI, standard di misurazione utilizzato (EBU R128, Youtube, Spotify, AES 71...) e di creare preset richiamabili tramite file "csv" di Stream Audio pubblici con Nome Associato.
 
 ![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)
 ![Platform](https://img.shields.io/badge/Platform-Windows-lightgrey.svg)
@@ -33,9 +32,9 @@ AudioStreamMETER/
 │   ├── AudioStreamMETER_windows.spec # Config PyInstaller
 │   ├── installer.iss               # Script Inno Setup
 │   ├── customization/
-│   │    ├── metering_standards/standards.json   # File per richiamare gli standard di misurazione
-│   │    ├── presets/Default.csv   # File per richiamare set di IP + Nome corrisponente + email supporto tecnico
-│   │    └── email_template.json  # File per personalizzare il Template della Email da inviare al supporto tecnico dello stream corrispondente
+│   │   ├── metering_standards/standards.json   # File per richiamare gli standard di misurazione
+│   │   ├── presets/Default.csv   # File per richiamare set di IP + Nome corrisponente + email supporto tecnico
+│   │   └── email_template.json  # File per personalizzare il Template della Email da inviare al supporto tecnico dello stream corrispondente
 │   └── ffmpeg_bin/                 # Binari FFmpeg per packaging con InnoSetup
 └── README.md
 ```

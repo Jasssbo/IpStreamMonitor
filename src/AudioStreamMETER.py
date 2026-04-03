@@ -1,5 +1,19 @@
 """
 AudioStreamMETER
+Copyright (C) 2026 Andrea Mazzurana
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
 ====================
 Monitor up to 16 stereo HTTP audio streams (MP3/AAC) in parallel.
 Displays real-time waveform and measures LUFS (short-term ~3s).
@@ -12,7 +26,7 @@ System requirements:
 
 Usage:
     python AudioStreamMETER.py
-    Then add stream URLs from the GUI.
+    Then add stream URLs from the GUI or write a CSV preset.
 """
 
 import sys, threading, subprocess, re, csv, json, time, math, atexit, platform, shutil, ctypes, webbrowser

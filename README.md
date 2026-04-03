@@ -33,9 +33,9 @@ AudioStreamMETER/
 │   ├── AudioStreamMETER_windows.spec # PyInstaller config
 │   ├── installer.iss               # Inno Setup script
 │   ├── customization/
-│   │    ├── metering_standards/standards.json   # Metering standards configuration
-│   │    ├── presets/Default.csv   # Preset file for IP + Name sets with single-click recall
-│   │    └── email_template.json  # The email template for technical support communications 
+│   │   ├── metering_standards/standards.json   # Metering standards configuration
+│   │   ├── presets/Default.csv   # Preset file for IP + Name sets with single-click recall
+│   │   └── email_template.json  # The email template for technical support communications 
 │   └── ffmpeg_bin/                 # FFmpeg binaries for InnoSetup's packaging
 └── README.md
 ```
